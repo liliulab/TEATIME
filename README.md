@@ -36,14 +36,18 @@ TEATIME.run(input.file,steps=0:5)
 ```
 
 Option 2: MAGOS result
+
 The second option is to run MAGOS on your local side, then use the returned result from MAGOS as the input for TEATIME. In this case, set magos_object = TRUE and ensure 0 is not included in the steps.
+
 #### Usage
 ```
 TEATIME.run(input.file,magos_object = TRUE,steps=1:5)
 ```
 For more information regarding MAGOS, visit the [MAGOS](https://github.com/liliulab/magos/).
 
+
 Option 3: Own Sequencing Data Clustering Result
+
 The third option is to run TEATIME with your own sequencing data clustering result. The input must be a dataframe with three columns (vaf.1, depth.1, colors). The first two columns are straightforward, while the third column, colors, refers to the cluster corresponding to each mutation. Do not change the column names.
 
 Note that in this case, set magos_object = FALSE and ensure 0 is not included in the steps.
