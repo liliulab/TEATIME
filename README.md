@@ -8,16 +8,17 @@
 
 ```
 library(devtools)
-devtools::install_github('liliulab/MAGOS')
+devtools::install_github('liliulab/TEATIME')
 ```
 
 
 ## Input Data
-MAGOS only requires the reference and the alternate read counts from the VCF file. In the the standard VCF format this information can be extracted from the 'AD' (Allelic Depths) section in the FORMAT column. 
+### TEATIME provides three options for input files/data.
 
-For more information, visit the [MAGOS homepage](https://github.com/liliulab/magos/).
+Option 1: Reference and Alternate Read Counts from VCF
 
-### Single Sample
+TEATIME can utilize reference and alternate read counts directly from a VCF file. In the standard VCF format, this information is found in the 'AD' (Allelic Depths) section of the FORMAT column.
+
 The input data for single sample analysis should be a dataframe or a matrix with two columns. Each row corresponds to a point mutation. The reference reads in the first column and the alterante reads in the second column. 
 
 | | Ref Counts | Alt Counts|
@@ -28,23 +29,36 @@ The input data for single sample analysis should be a dataframe or a matrix with
 |...|...|...|
 
 
-| | Ref Sample 1 | Alt Sample 1| Ref Sample 2| Alt Sample 2| Ref Sample 3 | Alt Sample 3|...|...|
-|----|---------|--------|---|---|---|---|---|---|
-|mut 1  | ref 1 s1     | alt 1 s1    | ref 1 s2| alt 1 s2| ref 1 s3 | alt 1 s3|...|...|
-|mut 2 | ref 2 s1     | alt 2 s1     |ref 2 s2| alt 2 s2| ref 2 s3 | alt 2 s3|...|...|
-|mut 3 | ref 3 s1    | alt 3 s1    |ref 3 s2| alt 3 s2| ref 3 s3 | alt 3 s3|...|...|
-|...|...|...|...|...|...|...|...|...|
-
-
+To run TEATIME using this input, include 0 in steps. TEATIME will run MAGOS in this case.
 ## Usage
 ```
-run = mag.single.run(input.data)
+TEATIME.run(input.file,steps=0:5)
+```
+
+Option 2: MAGOS result
+The second option is to run MAGOS on your local side, then use the returned result from MAGOS as the input for TEATIME. In this case, set magos_object = TRUE and ensure 0 is not included in the steps.
+## Usage
+```
+TEATIME.run(input.file,magos_object = TRUE,steps=1:5)
+```
+For more information regarding MAGOS, visit the [MAGOS](https://github.com/liliulab/magos/).
+
+Option 3: Own Sequencing Data Clustering Result
+The third option is to run TEATIME with your own sequencing data clustering result. The input must be a dataframe with three columns (vaf.1, depth.1, colors). The first two columns are straightforward, while the third column, colors, refers to the cluster corresponding to each mutation. Do not change the column names.
+
+Note that in this case, set magos_object = FALSE and ensure 0 is not included in the steps.
+
+| vaf.1 | depth.1 | colors |
+|----|---------|--------|
+|vaf 1  | dp1     | c1    |
+|vaf 2 | dp2    | c2     |
+|vaf 3 | dp3   | c3   |
+|...|...|...|
 
 
-# the results will be in run$results
-# the results can be visualized using the following script: 
-
-plot(run$results$vaf.1, run$results$depth.1, col= run$results$colors, xlab= 'VAF', ylab='Depth') 
+ ## Usage
+```
+TEATIME.run(input.file,magos_object = FALSE,steps=1:5)
 ```
 
 Examples and test data and explanations on different functionalities can be found in the ACE_workshop folder. 
