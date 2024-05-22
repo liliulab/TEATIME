@@ -30,14 +30,14 @@ The input data for single sample analysis should be a dataframe or a matrix with
 
 
 To run TEATIME using this input, include 0 in steps. TEATIME will run MAGOS in this case.
-## Usage
+#### Usage
 ```
 TEATIME.run(input.file,steps=0:5)
 ```
 
 Option 2: MAGOS result
 The second option is to run MAGOS on your local side, then use the returned result from MAGOS as the input for TEATIME. In this case, set magos_object = TRUE and ensure 0 is not included in the steps.
-## Usage
+#### Usage
 ```
 TEATIME.run(input.file,magos_object = TRUE,steps=1:5)
 ```
@@ -56,7 +56,7 @@ Note that in this case, set magos_object = FALSE and ensure 0 is not included in
 |...|...|...|
 
 
- ## Usage
+#### Usage
 ```
 TEATIME.run(input.file,magos_object = FALSE,steps=1:5)
 ```
