@@ -48,7 +48,7 @@ For more information regarding MAGOS, visit the [MAGOS](https://github.com/liliu
 
 Option 3: Own Sequencing Data Clustering Result
 
-The third option is to run TEATIME with your own sequencing data clustering result. The input must be a dataframe with three columns (vaf.1, depth.1, colors). The first two columns are straightforward, while the third column, colors, refers to the cluster corresponding to each mutation. Do not change the column names.
+The third option is to run TEATIME with your own sequencing data clustering result. The input must be a dataframe with three columns (vaf.1, depth.1, colors). Each row corresponds to a point mutation.The first two columns are straightforward, while the third column, colors, refers to the cluster corresponding to each mutation. Do not change the column names.
 
 Note that in this case, set magos_object = FALSE and ensure 0 is not included in the steps.
 
