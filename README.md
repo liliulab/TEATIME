@@ -54,10 +54,10 @@ Examples and test data and explanations on different functionalities can be foun
 
 ## Reference
 
-The paper in under review in Bioinformatics. 
+The paper in under manuscript. 
 
 
 
 
 ## Contributors
-Algorithm of MAGOS was developed by Li Liu and Navid Ahmadinejad. Please contact liliu at asu.edu for any questions or suggestions. 
+Algorithm of MAGOS was developed by Li Liu and Hai Chen. Please contact liliu at asu.edu for any questions or suggestions. 
