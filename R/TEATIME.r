@@ -1,13 +1,14 @@
 ###TEATIME####
 library(dplyr)
 library(RBesT)
-library(MAGOS)
+#library(MAGOS)
 library(stats)
 library(strucchange)
 library(rcompanion)
 library(likelihoodExplore)
 library(tidyr)
 
+source(file.path("R", "MAGOS.R"))
 
 
 
@@ -2979,13 +2980,17 @@ Post_process<-function(){
 #' @param steps A vector of integers indicating which functions to execute. 0: run MAGOS with input; 1: prepare VAF files; 2. Rbest estimate. 3. mutation rate estimate; 4. Fitness estimate. 5 Final prediction.
 #' @param write_final if want to write final result in .txt file
 #' @param debug_mode If want to show error
+#' @param seed An optional seed for reproducibility.
 #' @return NULL
 #' @export
-TEATIME.run <- function(input.file,beta=0.9,depth=NA,p_thre=0.01,magos_object=T,output.folder="./", output.prefix="TEATIME",id='T01',steps=1:5,write_final=T,debug_mode=F) {
+TEATIME.run <- function(input.file,beta=0.9,depth=NA,p_thre=0.01,magos_object=T,output.folder="./", output.prefix="TEATIME",id='T01',steps=1:5,write_final=T,debug_mode=F,seed=NA) {
   output.folder <- paste(output.folder, '/', sep='');
+  if(!is.na(seed)){
+    set.seed(seed)
+  }
   if(0 %in% steps) {
 
-    input.file = MAGOS::mag.single.run(input.file,fold= T)
+    input.file = mag.single.run(input.file,fold= T)
     magos_object=T
 
     #prepare.vaf.data(vafdata=input.file, beta=beta,depth=depth, magos_object=magos_object,output.folder=output.folder, output.prefix=output.prefix,id=id);

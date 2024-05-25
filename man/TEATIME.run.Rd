@@ -15,7 +15,8 @@ TEATIME.run(
   id = "T01",
   steps = 1:5,
   write_final = T,
-  debug_mode = F
+  debug_mode = F,
+  seed = NA
 )
 }
 \arguments{
@@ -42,6 +43,8 @@ colors refers to the cluster corresponding to each mutation}
 \item{write_final}{if want to write final result in .txt file}
 
 \item{debug_mode}{If want to show error}
+
+\item{seed}{An optional seed for reproducibility.}
 }
 \description{
 Perform Evolutionary parameter estimation from sequencing data.
