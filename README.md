@@ -65,7 +65,8 @@ Note that in this case, set magos_object = FALSE and ensure 0 is not included in
 TEATIME.run(input.file,magos_object = FALSE,steps=1:5)
 ```
 
-Examples and test data and explanations on different functionalities can be found in the ACE_workshop folder. 
+Test data can be found in the data folder. To ensure the reproducibility of the test and control the consistency of the simulation, set seed=123. 
+This is limited to repeating the same results and is not recommended for real analysis. 
 
 
 
