@@ -2000,14 +2000,15 @@ Get.S<-function(p,p_thre=1e-6){
       check_div<-1:nrow(cluster.result)
     }
     #check_div<-ifelse(nrow(cluster.result)==1,min(cluster.result$cluster),1:nrow(cluster.result))
-
+    #print(cluster.result)
     svalue.list<-sapply(check_div, function(give_n) {
       svalue<-s_update_process(give_n,cluster.result,vaf_set,min.s.detect,vaf.t1,p,p_thre)
       return(svalue)
     })
-
+    #print(svalue.list)
     if (any(svalue.list > 0)) {
       estimate.s.data<-evaluate_all_s(svalue.list,vaf.t1,p)
+      print(estimate.s.data)
       estimate.s.data<-estimate.s.data[estimate.s.data$s>0,]
     }else{
       cat('Subclonal cluster unable to estimate s, too few point Or low depth...\n');
@@ -2219,7 +2220,7 @@ s_update_process<-function(give_n,cluster.result,vaf_set,min.s.detect,vaf.t1,p,p
     #cell.list<-ifelse(give_n>1,generate_sequence(give_n,s),(1:max_n)*(1+s))
 
     cluster.result=s.dataframe.update(cell.list,p,vaf.t1,vaf_set,min.s.detect)
-
+    #print(cluster.result)
     update_s <- cluster.result$new_s[which(cluster.result$cluster == give_n)]
     s=update_s
     if(abs(update_s-s)<p_thre){break}
@@ -2402,6 +2403,7 @@ s.dataframe.update<-function(cell.list,p,vaf.t1,vaf_set,min.s.detect,evaluate=F,
     group_by(cluster) %>%
     group_modify(~ sample_or_not(.x, .y$cluster,p, named_mix_vec)) %>%
     ungroup()
+
 
 
   if(simulation){
@@ -2587,7 +2589,7 @@ All.guess.update<-function(){
     stringsAsFactors = FALSE
   )
 
-
+  #print(data.rearrange)
 
   write.table(data.rearrange, output.file.name, sep='\t', row.names=F, quote=F);
 
@@ -2638,13 +2640,17 @@ Find.s.from.predict<-function(predict.result){
   p.list=unique(predict.result$p)
   s.results <- lapply(p.list, function(p) {
     df<-Get.S( p, p_thre=1e-6)
+    #print(df)
     df$p_value <- p
     data<-pick_s(df)
+    #print(data)
     murange=Simulate_ratio_peak(p,data$s)
     data$minmu=min(murange)
     data$maxmu=max(murange)
     return(data)
   })
+  #cat('*****************S**********\n');flush.console();
+  #print(s.results)
   fit.data<-data.frame()
   combined_df <- do.call(rbind, s.results)
   for(try in 1:length(p.list)){
@@ -2994,6 +3000,10 @@ TEATIME.run <- function(input.file,beta=0.9,depth=NA,p_thre=0.01,magos_object=T,
     magos_object=T
 
     #prepare.vaf.data(vafdata=input.file, beta=beta,depth=depth, magos_object=magos_object,output.folder=output.folder, output.prefix=output.prefix,id=id);
+  }
+  if(!is.na(seed)){
+    seed=seed+1
+    set.seed(seed)
   }
   if(1 %in% steps) {
     #prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, output.prefix,id,write_final=write_final,debug_mode=debug_mode)
