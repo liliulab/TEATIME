@@ -109,7 +109,7 @@ fit.elements.v3<- function(elements,vaf.data, depth.data){
   return(result[which.max(result[,'dist']), c('dist', 's1')])
 }
 get.var.v3.1 <-function(x, x.nb, s) {
-  
+
   x.nb<- x.nb[as.logical(x)]
   x.nb<-x.nb[!is.na(x.nb)]
   a <- mean(x.nb);
@@ -202,7 +202,7 @@ mag.prepdata<- function(arg.data){
   depth.data$ID<- ID
 
   results<- list(counts=counts.data,vafs=vaf.data, depths=depth.data)
-  print('test')
+  #print('test')
   return(results)
 }
 
@@ -1517,7 +1517,7 @@ mag.single.run<- function(input.data, fold=F){
   purity<- 2*max(sum1$meanVAF)
   if(purity>1 & fold==F){purity='There are clusters with frequency higher than 0.5- consider folding.'}
   k<-0
-  
+
   if(fold==T & sum(sum1$meanVAF>0.5)>0){
     fold.colors<- sum1$colors[sum1$meanVAF>0.5]
     data.folded<- temp
@@ -1534,19 +1534,19 @@ mag.single.run<- function(input.data, fold=F){
   }
   if(k >0){
   while(fold==T & sum(sum2$meanVAF>0.5)>0 & k <=50){
-    #temp<- merge(cut$final.data, data.prep$depths, by='ID')   
-    fold.colors<- sum2$colors[sum2$meanVAF>0.5]                                 
-    data.folded<- temp                                                          
+    #temp<- merge(cut$final.data, data.prep$depths, by='ID')
+    fold.colors<- sum2$colors[sum2$meanVAF>0.5]
+    data.folded<- temp
     data.folded$vaf.1[data.folded$colors%in%fold.colors]<- 1-data.folded$vaf.1[data.folded$colors%in%fold.colors]
-    data.prep.fold<- data.prep                                                  
-    data.prep.fold$vafs$vaf.1<- data.folded$vaf.1                               
-    mag<- mag.single(data.prep.fold)                                            
-    cut<- cut.off.single(mag)                                                   
-    temp<- merge(cut$final.data, data.prep$depths, by='ID')                     
-    #plot(temp$vaf.1, temp$depth.1, col=temp$colors, pch=19)                    
-    sum2<- temp%>%group_by(colors)%>%summarize(meanVAF=mean(vaf.1))             
-    purity<- 2*max(sum2$meanVAF)                                                
-    k<-k+1       
+    data.prep.fold<- data.prep
+    data.prep.fold$vafs$vaf.1<- data.folded$vaf.1
+    mag<- mag.single(data.prep.fold)
+    cut<- cut.off.single(mag)
+    temp<- merge(cut$final.data, data.prep$depths, by='ID')
+    #plot(temp$vaf.1, temp$depth.1, col=temp$colors, pch=19)
+    sum2<- temp%>%group_by(colors)%>%summarize(meanVAF=mean(vaf.1))
+    purity<- 2*max(sum2$meanVAF)
+    k<-k+1
 
   }
   }
