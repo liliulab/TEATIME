@@ -65,9 +65,18 @@ Note that in this case, set magos_object = FALSE and ensure 0 is not included in
 TEATIME.run(input.file,magos_object = FALSE,steps=1:5)
 ```
 
-Test data can be found in the data folder. To ensure the reproducibility of the test and control the consistency of the simulation, set seed=123. 
-This is limited to repeating the same results and is not recommended for real analysis. 
 
+Test data can be found in the data folder. To ensure the reproducibility of the test and control the consistency of the simulation, set ～～～`seed=123` (or any number). `seed 123` is the default for generating `magos.sample.rda`. 
+
+This setting is limited to repeating the same results and is not recommended for real analysis.
+
+#### Test code
+```
+TEATIME.run(input.file=vcf.33,depth=1000,steps=0:5,seed = 123) 
+
+TEATIME.run(input.file=magos.33,depth=1000,magos_object=T,steps=1:5,seed = 123) 
+
+```
 
 
 
