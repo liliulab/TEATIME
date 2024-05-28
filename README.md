@@ -35,7 +35,7 @@ To run `TEATIME` using this input, include `0` in `steps`. `TEATIME` will run `M
 ```
 TEATIME.run(input.file,steps=0:5)
 ```
-&ensp;
+
 
 Option 2: MAGOS result
 
@@ -46,7 +46,7 @@ The second option is to run `MAGOS` on your local side, then use the returned re
 TEATIME.run(input.file,magos_object = TRUE,steps=1:5)
 ```
 For more information regarding `MAGOS`, visit the [MAGOS](https://github.com/liliulab/magos/).
-&ensp;
+
 
 Option 3: Own Sequencing Data Clustering Result
 
@@ -61,12 +61,10 @@ Note that in this case, set `magos_object = FALSE` and ensure `0` is not include
 |vaf 3 | dp3   | c3   |
 |...|...|...|
 
-
 #### Usage
 ```
 TEATIME.run(input.file,magos_object = FALSE,steps=1:5)
 ```
-&ensp;
 
 Test data can be found in the data folder. To ensure the reproducibility of the test and control the consistency of the simulation, set `seed=123` (or any number). `123` is the default seed for generating `magos.sample.rda`. 
 This setting is limited to repeating the same results and is not recommended for real analysis.
