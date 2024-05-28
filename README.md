@@ -49,6 +49,7 @@ TEATIME.run(input.file,magos_object = TRUE,steps=1:5)
 For more information regarding `MAGOS`, visit the [MAGOS](https://github.com/liliulab/magos/).
 <br/><br/>
 
+
 Option 3: Own Sequencing Data Clustering Result
 
 The third option is to run TEATIME with your own sequencing data clustering result. The input must be a dataframe with three columns (`vaf.1, depth.1, colors`). Each row corresponds to a point mutation.The first two columns are straightforward, while the third column, `colors`, refers to the cluster corresponding to each mutation. Do not change the column names.
@@ -67,6 +68,7 @@ Note that in this case, set `magos_object = FALSE` and ensure `0` is not include
 TEATIME.run(input.file,magos_object = FALSE,steps=1:5)
 ```
 <br/><br/>
+
 
 Test data can be found in the data folder. To ensure the reproducibility of the test and control the consistency of the simulation, set `seed=123` (or any number). `123` is the default seed for generating `magos.sample.rda`. 
 This setting is limited to repeating the same results and is not recommended for real analysis.
