@@ -29,7 +29,7 @@ The input data for single sample analysis should be a dataframe or a matrix with
 |...|...|...|
 
 
-To run `TEATIME` using this input, include 0 in steps. `TEATIME` will run `MAGOS` in this case.
+To run `TEATIME` using this input, include `0` in `steps`. `TEATIME` will run `MAGOS` in this case.
 
 #### Usage
 ```
