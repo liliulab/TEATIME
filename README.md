@@ -38,7 +38,7 @@ TEATIME.run(input.file,steps=0:5)
 
 Option 2: MAGOS result
 
-The second option is to run `MAGOS` on your local side, then use the returned result from MAGOS as the input for `TEATIME`. In this case, set `magos_object = TRUE` and ensure `0` is not included in the `steps`.
+The second option is to run `MAGOS` on your local side, then use the returned result from `MAGOS` as the input for `TEATIME`. In this case, set `magos_object = TRUE` and ensure `0` is not included in the `steps`.
 
 #### Usage
 ```
