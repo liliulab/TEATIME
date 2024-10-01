@@ -19,7 +19,7 @@ Option 1: Reference and Alternate Read Counts from VCF
 
 `TEATIME` can utilize reference and alternate read counts directly from a VCF file. In the standard VCF format, this information is found in the 'AD' (Allelic Depths) section of the FORMAT column.
 
-The input data for single sample analysis should be a dataframe or a matrix with two columns. Each row corresponds to a point mutation. The reference reads in the first column and the alterante reads in the second column. 
+The input data for single sample analysis should be a dataframe or a matrix with three columns. Each row corresponds to a point mutation. The reference reads in the first column and the alterante reads in the second column, Copy number information in third column.
 
 | | Ref Counts | Alt Counts| CN |
 |----|---------|--------|--------|
