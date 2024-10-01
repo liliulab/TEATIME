@@ -1687,9 +1687,16 @@ prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, outp
   }else{
     cat('Debug mode OFF ...\n');flush.console();
   }
-  if(magos_object){vafdata<-vafdata$result}
+  if(magos_object){
+    purity<-min(vafdata$purity,1)
+
+    vafdata<-vafdata$result
+    vafdata$vaf.1<-vafdata$vaf.1*(2-purity)/(2*vafdata$vaf.1*(1-purity)+purity)
+
+    }
   if(is.na(depth)){depth<-mean(vafdata$depth.1)}
 
+  #vafdata
   vafdata.summary<- vafdata %>%
     group_by(colors) %>%
     summarise(
@@ -2995,6 +3002,15 @@ TEATIME.run <- function(input.file,beta=0.9,depth=NA,p_thre=0.01,magos_object=T,
     set.seed(seed)
   }
   if(0 %in% steps) {
+    ## filter CNV
+    # Ensure the last column is numeric
+    input.file[, ncol(input.file)] <- as.numeric(input.file[, ncol(input.file)])
+
+    # Filter rows where the last column (CN) is 2 (normal)
+    input.file <- input.file[input.file[, ncol(input.file)] == 2, ]
+
+    # Remove the last column (CN) after filtering
+    input.file <- input.file[, -ncol(input.file)]
 
     input.file = mag.single.run(input.file,fold= T)
     magos_object=T
