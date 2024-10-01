@@ -21,11 +21,11 @@ Option 1: Reference and Alternate Read Counts from VCF
 
 The input data for single sample analysis should be a dataframe or a matrix with two columns. Each row corresponds to a point mutation. The reference reads in the first column and the alterante reads in the second column. 
 
-| | Ref Counts | Alt Counts|
-|----|---------|--------|
-|mut 1  | ref 1      | alt 1     |
-|mut 2 | ref 2      | alt 2     |
-|mut 3 | ref 3      | alt 3     |
+| | Ref Counts | Alt Counts| CN |
+|----|---------|--------|--------|
+|mut 1  | ref 1      | alt 1     | 2 |
+|mut 2 | ref 2      | alt 2     | 2 |
+|mut 3 | ref 3      | alt 3     | 2 |
 |...|...|...|
 
 
