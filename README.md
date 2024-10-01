@@ -15,7 +15,7 @@ devtools::install_github('liliulab/TEATIME')
 ## Input Data
 ### TEATIME provides three options for input files/data.
 
-Option 1: Reference and Alternate Read Counts from VCF
+Option 1: Reference & Alternate Read Counts with CN 
 
 `TEATIME` can utilize reference and alternate read counts directly from a VCF file. In the standard VCF format, this information is found in the 'AD' (Allelic Depths) section of the FORMAT column.
 
