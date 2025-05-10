@@ -1666,6 +1666,41 @@ simu_slope<-function(vaf_set,p){
 }
 
 
+extract_subp<-function(result){
+
+  result$count<-1
+  #result$vaf.1<-result$vaf.1/purity
+  meanvaf<-aggregate(result$vaf.1, list(result$colors), mean)
+  maxvaf<-aggregate(result$vaf.1, list(result$colors), max)
+  minvaf<-aggregate(result$vaf.1, list(result$colors), min)
+
+  sumvaf<-aggregate(result$count, list(result$colors), sum)
+  mago.result<-data.frame(max=maxvaf$x,min=minvaf$x,vaf=meanvaf$x,sum=sumvaf$x)
+  # Step 1: Drop the cluster with the largest 'vaf'
+  max_vaf_index <- which.max(mago.result$vaf)
+
+  mago.result <- mago.result[-max_vaf_index, ]
+
+  # Step 2: Drop the cluster with the smallest 'min'
+  min_min_index <- which.min(mago.result$min)
+  mago.result <- mago.result[-min_min_index, ]
+
+  min_min_index <- which.max(mago.result$min)
+  mago.result <- mago.result[min_min_index, ]
+  # Step 3: Filter clusters with 'sum' >= 5
+  filtered_result <- mago.result[mago.result$sum >= 0, ]
+  if (nrow(filtered_result) > 0) {
+    total_sum <- sum(filtered_result$sum)
+    weighted_mean_vaf <- sum(filtered_result$vaf * filtered_result$sum) / total_sum
+    p=weighted_mean_vaf*2
+  }else{
+    p=0
+  }
+  return(p)
+}
+
+
+}
 #' Prepare VAF and Depth Data
 #' @param vafdata magos object, OR, manually, it should be dataframe with columns: vaf.1, depth.1,colors
 #' colors refers to the cluster corresponding to each mutation
@@ -1695,6 +1730,10 @@ prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, outp
 
     }
   if(is.na(depth)){depth<-mean(vafdata$depth.1)}
+
+  ##Extract p value
+  magosp<-extract_subp(vafdata)
+
 
   #vafdata
   vafdata.summary<- vafdata %>%
@@ -1764,6 +1803,7 @@ prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, outp
     outputfolder=output.folder,
     outputprefix=output.prefix,
     id=id,
+    magosp=magosp,
     write_final=write_final
   )
   assign("TEATIME", TEATIME, envir = .GlobalEnv)
@@ -2735,6 +2775,79 @@ adjust_mu <- function(mu, mu_candidate, times) {
   return(adjusted_mu)
 }
 
+
+adjust_p<-function(data,magosp,beta,cut=0.3){
+  data$goodp<-magosp
+ data<-data[!(is.na(data$interp)& is.na(data$fitp)),]
+
+  data$pickp.alt <- ifelse(
+          is.na(data$intermu),  # If intermu is NA, directly use fitp
+          data$fitp,
+          ifelse(
+            data$mupick == data$intermu,
+            coalesce(data$interp, data$fitp),  # Prioritize interp if available
+            coalesce(data$fitp, data$interp)   # Otherwise, use fitp first
+          )
+        )
+
+        data$pickp.close <- apply(data, 1, function(row) {
+          candidates <- as.numeric(c(row["fitp"], row["interp"],row["backp"]))
+          candidates <- candidates[!is.na(candidates)]
+          if (length(candidates) == 0) return(NA)
+          freq1 <- as.numeric(row["goodp"]) # Access freq1 directly from the current row
+          closest <- candidates[which.min(abs(candidates - freq1))]
+          closest
+        })
+
+        data<-data[!is.na(data$pickp.close),]
+        data$pickp.close<-as.numeric(data$pickp.close)
+
+        data$mupick.new <- ifelse(
+          is.na(data$fitp),  # If fitp is NA, directly assign intermu
+          data$intermu,
+          ifelse(
+            abs(data$pickp.close - data$fitp) < 0.01,
+            coalesce(data$fitmu, data$intermu),  # Prioritize fitmu if available
+            coalesce(data$intermu, data$fitmu)  # Otherwise, use intermu first
+          )
+        )
+        data$mupick.choose<-ifelse(round(abs(data$pickp.alt-data$goodp),2)>=cut,data$mupick.new,data$mupick)
+        data$mupick<-data$mupick.choose
+        data$pickp<-ifelse(data$mupick.choose==data$mupick.new,data$pickp.close,data$pickp.alt)
+
+        data$pickp<-ifelse(round(abs(data$goodp-data$pickp),2)>=cut,data$goodp/2+data$pickp/2,data$pickp)
+        data$picks <- ifelse(
+          is.na(data$intermu),
+          data$fits,
+          ifelse(
+            data$mupick == data$intermu,
+            data$inters,data$fits
+          )
+        )
+        data$pickt1 <- ifelse(
+          is.na(data$intermu),  # If intermu is NA, directly use fitp
+          data$fit_len_diff/data$mupick,
+          ifelse(
+            data$mupick == data$intermu,
+            data$inter_len_diff/data$mupick,data$fit_len_diff/data$mupick
+          )
+        )
+        #data$pickp<-ifelse(data$mupick==data$intermu,data$interp,data$fitp)
+        data$picktend=((log(data$pickp)-log(1-data$pickp))/(log(2)*beta)+(1+data$picks)*data$pickt1)/data$picks
+        data$picktend=ifelse(data$picktend>0,data$picktend,NA)
+        valid_idx <- which(data$picktend >= data$pickt1 &
+                             data$picktend >= 1 &
+                             data$picktend <= 100)
+
+
+        invalid_idx <- setdiff(seq_len(nrow(data)), valid_idx)
+
+        data[invalid_idx, c("picks", "mupick", "pickp", "pickt1", "picktend")] <- NA
+        return(data)
+}
+
+
+
 #' Process and finalize the data
 #'
 #' @param data.rearrange Data frame
@@ -2747,6 +2860,7 @@ final.process<-function(data.rearrange,Rbest.data){
   output.folder=TEATIME$outputfolder
   output.prefix=TEATIME$outputprefix
   sample_name= TEATIME$id
+  magosp=TEATIME$magosp
   write_final<-TEATIME$write_final
   missample <- Rbest.data$samplename[which(Rbest.data$len_adj == 1)]
 
@@ -2772,12 +2886,11 @@ final.process<-function(data.rearrange,Rbest.data){
     data <- data %>%
       mutate(mupick_low_depth = determine_mupick(fitdiff, interdiff, fitdiff2, interdiff2, fitmu, intermu))
 
-    data$mupick<-ifelse(data$name %in% missample,data$intermu,data$mupick)
-    data$picks<-ifelse(data$mupick==data$intermu,data$inters,data$fits)
-    data$pickt1<-ifelse(data$mupick==data$intermu,data$inter_len_diff/data$mupick,data$fit_len_diff/data$mupick)
-    data$pickp<-ifelse(data$mupick==data$intermu,data$interp,data$fitp)
-    data$picktend=((log(data$pickp)-log(1-data$pickp))/(log(2)*beta)+(1+data$picks)*data$pickt1)/data$picks
-    data$picktend=ifelse(data$picktend>0,data$picktend,NA)
+    {
+
+      }
+
+    data<-adjust_p(data,magosp,beta)
 
     final.data=data.frame(
       name=sample_name,
@@ -3022,9 +3135,11 @@ TEATIME.run <- function(input.file,beta=0.9,depth=NA,p_thre=0.01,magos_object=T,
     set.seed(seed)
   }
   if(1 %in% steps) {
+
     #prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, output.prefix,id,write_final=write_final,debug_mode=debug_mode)
     prepare.vaf.data(vafdata=input.file, beta=beta,depth=depth, magos_object=magos_object,output.folder=output.folder, output.prefix=output.prefix,id=id,write_final=write_final,debug_mode=debug_mode);
-  }
+
+    }
   if(2 %in% steps) {
     ##Rbest
     Rbest_classify();
