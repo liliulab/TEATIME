@@ -2055,7 +2055,7 @@ Get.S<-function(p,p_thre=1e-6){
     #print(svalue.list)
     if (any(svalue.list > 0)) {
       estimate.s.data<-evaluate_all_s(svalue.list,vaf.t1,p)
-      print(estimate.s.data)
+      #print(estimate.s.data)
       estimate.s.data<-estimate.s.data[estimate.s.data$s>0,]
     }else{
       cat('Subclonal cluster unable to estimate s, too few point Or low depth...\n');
