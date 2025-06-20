@@ -1700,7 +1700,6 @@ extract_subp<-function(result){
 }
 
 
-}
 #' Prepare VAF and Depth Data
 #' @param vafdata magos object, OR, manually, it should be dataframe with columns: vaf.1, depth.1,colors
 #' colors refers to the cluster corresponding to each mutation
