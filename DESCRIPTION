@@ -5,8 +5,8 @@ Authors@R:
     person("Hai", "Chen", email="hchen294@asu.edu",role = c("aut", "cre"))
 Description: Derives evolutionary parameters by examining the composition of clusters formed by various VAFs.
 License: GPL (>=3)
-Depends: R (>= 4.1.0)  
 Depends:
+    R (>= 4.1.0)  
     dplyr (>= 1.1.2),
     igraph,
     Matrix,
