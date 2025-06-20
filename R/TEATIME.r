@@ -2777,7 +2777,7 @@ adjust_mu <- function(mu, mu_candidate, times) {
 
 adjust_p<-function(data,magosp,beta,cut=0.3){
   data$goodp<-magosp
- data<-data[!(is.na(data$interp)& is.na(data$fitp)),]
+  data<-data[!(is.na(data$interp)& is.na(data$fitp)),]
 
   data$pickp.alt <- ifelse(
           is.na(data$intermu),  # If intermu is NA, directly use fitp
@@ -2882,12 +2882,24 @@ final.process<-function(data.rearrange,Rbest.data){
         intermu = adjust_mu(intermu, intermu_candidate, times),
         fitmu = adjust_mu(fitmu, fitmu_candidate, times)
       )
+    data$mupick <- ifelse(
+    is.na(data$fitdiff) & !is.na(data$interdiff), data$intermu, # fit_len_ratio is NA
+    ifelse(
+      !is.na(data$fitdiff) & is.na(data$interdiff), data$fitmu, # inter_len_ratio is NA
+      ifelse(
+        is.na(data$fitdiff) & is.na(data$interdiff), NA, # Both are NA
+        ifelse(data$fitdiff2 < data$interdiff2, data$fitmu, data$intermu) # Neither are NA
+      )
+    )
+  )
+
+    if(Rbest.data$len_adj==1){
+      data$mupick<-ifelse(data$name %in% missample,data$intermu,data$mupick)
+      }
+
+  
     data <- data %>%
       mutate(mupick_low_depth = determine_mupick(fitdiff, interdiff, fitdiff2, interdiff2, fitmu, intermu))
-
-    {
-
-      }
 
     data<-adjust_p(data,magosp,beta)
 
