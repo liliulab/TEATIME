@@ -1859,7 +1859,7 @@ Run.para.estimate.maincluster = function(p_thre=0.01) {
     mu=NA,up=NA,p1=NA,name=sample_name
   )
   Fit.mu.list=Fit.upper.list=Fit.p.list=c()
-  for(try in 1:3){
+  for(try in 1:1){
     ##FIT CASE fit.over.check(main.vaf,depth,beta,p_thre)
     possibleError <- tryCatch({
       fit.check<-Run.fit.maincluster(p_thre=p_thre)
@@ -1908,7 +1908,7 @@ Run.para.estimate.maincluster = function(p_thre=0.01) {
     mu=NA,up=NA,p1=NA,name=sample_name
   )
   Bac.mu.list=Bac.p.list=c()
-  for(try in 1:3){
+  for(try in 1:1){
     ##FIT CASE fit.over.check(main.vaf,depth,beta,p_thre)
     possibleError <- tryCatch({
       bac.check<-Run.bac.maincluster(p_thre=p_thre)
@@ -1960,7 +1960,7 @@ Run.para.estimate.maincluster = function(p_thre=0.01) {
     mu=NA,up=NA,p1=NA,name=sample_name
   )
   Normal.mu.list=Normal.p.list=c()
-  for(try in 1:3){
+  for(try in 1:1){
     ##FIT CASE fit.over.check(main.vaf,depth,beta,p_thre)
     possibleError <- tryCatch({
       normal.check<-Run.normal.maincluster(p_thre=p_thre)
