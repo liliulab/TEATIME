@@ -1728,7 +1728,7 @@ prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, outp
     vafdata$vaf.1<-vafdata$vaf.1*(2-purity)/(2*vafdata$vaf.1*(1-purity)+purity)
 
     }
-  if(is.na(depth)){depth<-mean(vafdata$depth.1)}
+  if(is.na(depth)){depth <- round(mean(vafdata$depth.1))}
 
   ##Extract p value
   magosp<-extract_subp(vafdata)
