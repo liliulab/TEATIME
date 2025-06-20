@@ -1712,7 +1712,7 @@ extract_subp<-function(result){
 #' @param write_final Want to write final result?
 #' @param debug_mode Want to debug?
 #' @return A list containing the preparation results.
-prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, output.prefix,id,write_final=write_final,debug_mode=debug_mode) {
+prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, output.prefix,id,write_final=write_final,debug_mode=debug_mode,purity_set=purity_set) {
 
   assign("debug_mode", debug_mode, envir = .GlobalEnv)  # Initialize with TRUE or FALSE
 
@@ -1723,7 +1723,7 @@ prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, outp
   }
   if(magos_object){
     purity<-min(vafdata$purity,1)
-
+    if(purity_set>0){purity=purity_set}
     vafdata<-vafdata$result
     vafdata$vaf.1<-vafdata$vaf.1*(2-purity)/(2*vafdata$vaf.1*(1-purity)+purity)
 
@@ -3108,7 +3108,7 @@ Post_process<-function(){
 #' @param seed An optional seed for reproducibility.
 #' @return NULL
 #' @export
-TEATIME.run <- function(input.file,beta=0.9,depth=NA,p_thre=0.01,magos_object=T,output.folder="./", output.prefix="TEATIME",id='T01',steps=1:5,write_final=T,debug_mode=F,seed=NA) {
+TEATIME.run <- function(input.file,beta=0.9,depth=NA,p_thre=0.01,magos_object=T,output.folder="./", output.prefix="TEATIME",id='T01',steps=1:5,write_final=T,debug_mode=F,purity_set=0,seed=NA) {
   output.folder <- paste(output.folder, '/', sep='');
   if(!is.na(seed)){
     set.seed(seed)
@@ -3136,7 +3136,7 @@ TEATIME.run <- function(input.file,beta=0.9,depth=NA,p_thre=0.01,magos_object=T,
   if(1 %in% steps) {
 
     #prepare.vaf.data = function(vafdata, beta,depth,magos_object,output.folder, output.prefix,id,write_final=write_final,debug_mode=debug_mode)
-    prepare.vaf.data(vafdata=input.file, beta=beta,depth=depth, magos_object=magos_object,output.folder=output.folder, output.prefix=output.prefix,id=id,write_final=write_final,debug_mode=debug_mode);
+    prepare.vaf.data(vafdata=input.file, beta=beta,depth=depth, magos_object=magos_object,output.folder=output.folder, output.prefix=output.prefix,id=id,write_final=write_final,debug_mode=debug_mode,purity_set=purity_set);
 
     }
   if(2 %in% steps) {
