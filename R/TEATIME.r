@@ -2687,7 +2687,8 @@ Find.s.from.predict<-function(predict.result){
   s.results <- lapply(p.list, function(p) {
     df<-Get.S( p, p_thre=1e-6)
     #print(df)
-    df<-df[!is.na(df$s),]
+    #df<-df[!is.na(df$s),]
+    df <- na.omit(df)
     if(nrow(df)>0){
     df$p_value <- p
     data<-pick_s(df)
