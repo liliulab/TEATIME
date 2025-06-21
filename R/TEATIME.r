@@ -2687,17 +2687,25 @@ Find.s.from.predict<-function(predict.result){
   s.results <- lapply(p.list, function(p) {
     df<-Get.S( p, p_thre=1e-6)
     #print(df)
+    df<-df[!is.na(df$s),]
+    if(nrow(df)>0){
     df$p_value <- p
     data<-pick_s(df)
     #print(data)
     murange=Simulate_ratio_peak(p,data$s)
     data$minmu=min(murange)
     data$maxmu=max(murange)
-    return(data)
+    return(data)}else{
+     return(NULL)  
+    }
   })
   #cat('*****************S**********\n');flush.console();
   #print(s.results)
   fit.data<-data.frame()
+  valid_indices <- which(!sapply(s.results, is.null))
+  s.results <- s.results[valid_indices]
+  p.list <- p.list[valid_indices]
+
   combined_df <- do.call(rbind, s.results)
   for(try in 1:length(p.list)){
     p.pick=p.list[try]
