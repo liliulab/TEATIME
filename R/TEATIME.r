@@ -721,6 +721,12 @@ Iterate_P_optimize<-function(clear,give.vaf,upper_clonal_vaf,clonal.vaf.left,sec
       ))
 
     }
+    celldivlist <- celldivlist[!is.na(celldivlist) & !is.nan(celldivlist)]
+
+      if(debug_mode){
+      cat("   ", celldivlist, "\n");flush.console();
+      }
+    if(length(celldivlist)>0){
     #mu_estimation_from_peak<-function(vaf_set,p,num_decimal,p_thre,celldivlist=NA,collect.data=NULL)
     #collect.data2<-Second_run_test(first_vaf_list,second.vaf,give.vaf,sec.div.vaf,right_df,dynamic,celldivlist,p,beta,depth,num_decimal,Min_Sample_size=6,p_thre)
     collect.data2<-mu_estimation_from_peak(vaf_set=vaf_set,p=p,num_decimal=num_decimal,p_thre=p_thre,celldivlist=celldivlist,collect_data_check=collect.data1)
@@ -739,6 +745,9 @@ Iterate_P_optimize<-function(clear,give.vaf,upper_clonal_vaf,clonal.vaf.left,sec
     }else{
       overlap.pick<-NULL
     }
+      }else{
+      overlap.pick<-NULL
+      }
     #overlap.pick<-ifelse(nrow(over12)>0,over12,NULL)
 
 
