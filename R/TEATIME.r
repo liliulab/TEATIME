@@ -1117,10 +1117,11 @@ Run.fit.maincluster = function(p_thre=0.01) {
   if(debug_mode){
   cat("   ", celldivlist, "\n");flush.console();
   }
+  if(length(celldivlist)>0){
   collect.data2<- mu_estimation_from_peak(vaf_set,p=tea.result$p,num_decimal,p_thre,celldivlist=celldivlist)
   range1 <- ifelse(nrow(collect.data2) == 1, collect.data2$mu_est - 1, min(collect.data2$mu_est))
   range2 <- ifelse(nrow(collect.data2) == 1, collect.data2$mu_est + 1, max(collect.data2$mu_est))
-
+  
   if(range2>median(collect.data$mu)){
     over12<-collect.data[collect.data$mu_real>=range1 & collect.data$mu_real<=range2,]
   }else{
@@ -1132,6 +1133,9 @@ Run.fit.maincluster = function(p_thre=0.01) {
   }else{
     overlap.pick<-collect.data
   }
+  }else{
+    overlap.pick<-collect.data
+    }
   #overlap.pick<-ifelse(nrow(over12)>0,over12,collect.data)
 
   overlap.pick<-na.omit(overlap.pick)
