@@ -1108,11 +1108,14 @@ Run.fit.maincluster = function(p_thre=0.01) {
   }
   #collect.data <- ifelse(nrow(first_check[abs(first_check$z_score) <= 1.96, ]) > 0,first_check[abs(first_check$z_score) <= 1.96, ],first_check)
   celldivlist<-collect.data$cell.div
+  celldivlist <- celldivlist[!is.na(celldivlist) & !is.nan(celldivlist)]
 
   # Sort the data frame by absolute differences
   vaf_set=TEATIME$main_cluster_vaf
   cat('Start Running Peak Method For Fit Case...\n');
   cat('   ', length(celldivlist), '...'); flush.console();
+  cat("   ", celldivlist, "\n");flush.console();
+
   collect.data2<- mu_estimation_from_peak(vaf_set,p=tea.result$p,num_decimal,p_thre,celldivlist=celldivlist)
   range1 <- ifelse(nrow(collect.data2) == 1, collect.data2$mu_est - 1, min(collect.data2$mu_est))
   range2 <- ifelse(nrow(collect.data2) == 1, collect.data2$mu_est + 1, max(collect.data2$mu_est))
