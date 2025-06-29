@@ -2860,7 +2860,12 @@ adjust_p<-function(data,magosp,beta,cut=0.3){
         #data$pickp<-ifelse(data$mupick==data$intermu,data$interp,data$fitp)
         data$picktend=((log(data$pickp)-log(1-data$pickp))/(log(2)*beta)+(1+data$picks)*data$pickt1)/data$picks
         data$picktend=ifelse(data$picktend>0,data$picktend,NA)
-        valid_idx <- which(data$picktend >= data$pickt1)
+        #valid_idx <- which(data$picktend >= data$pickt1)
+        valid_idx <- which(
+          data$picktend >= data$pickt1 &
+          data$picktend >= 1 &
+          data$picktend <= 100
+        )
 
 
         invalid_idx <- setdiff(seq_len(nrow(data)), valid_idx)
