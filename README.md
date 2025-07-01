@@ -84,7 +84,7 @@ TEATIME.run(input.file=magos.33,depth=1000,magos_object=T,steps=1:5,seed = 123)
 
 ## Reference
 
-Please see [preprint] (https://www.biorxiv.org/content/10.1101/2025.05.31.657191v1).
+Please see preprint: https://www.biorxiv.org/content/10.1101/2025.05.31.657191v1
 <br/><br/>
 
 
