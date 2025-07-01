@@ -2864,7 +2864,7 @@ adjust_p<-function(data,magosp,beta,cut=0.3){
         valid_idx <- which(
           data$picktend >= data$pickt1 &
           data$picktend >= 1 &
-          data$picktend <= 100
+          data$picktend <= 1000
         )
 
 
