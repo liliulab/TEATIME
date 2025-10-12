@@ -2942,10 +2942,20 @@ final.process<-function(data.rearrange,Rbest.data){
     )
 
   }
-
+  # remove files except final.txt 
+  all_files <- list.files(output.folder, full.names = TRUE)
+  files_to_delete <- all_files[!grepl("\\.final\\.txt$", all_files)]
+  
+  if (length(files_to_delete) > 0) {
+    file.remove(files_to_delete)
+  }
+  
   if(write_final){
   write.table(final.data, final.file.name, sep='\t', row.names=F, quote=F);
   }
+  
+  
+
   return(final.data)
 
 
