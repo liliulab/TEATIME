@@ -510,14 +510,14 @@ TEATIME.result &lt;- TEATIME.run(
 named <code>&lt;output.prefix&gt;.final.txt</code> in the folder.</p>
 <pre class="r"><code>TEATIME.result &lt;- read.table(&quot;TEATIME.final.txt&quot;,header=T)
 print(TEATIME.result)</code></pre>
-<pre><code>##                                       name   mu        s t1     tend         p
-## 1 0e12aaa6797c55712a46067fa3dc40e9c48272bd 17.9 0.440502 10 31.31972 0.4062049</code></pre>
+<pre><code>##   name   mu        s t1     tend         p
+## 1 test 17.9 0.440502 10 31.31972 0.4062049</code></pre>
 <p>The <strong>TEATIME</strong> output file contains several key
 inferred parameters: <strong>μ</strong> mutation rate,
 <strong>s</strong> relative growth advantage of the subclone,
 <strong>p</strong> cellular frequency of the subclone,
 <strong>t1</strong> relative emergence time of
-subclone,<strong>tend</strong>, relative sampling time. We can now
+subclone,<strong>tend</strong> relative sampling time. We can now
 compare the estimated parameters with the true values from the
 simulation.<br />
 For example, the relative error of the mutation rate, fitness, and
@@ -558,27 +558,28 @@ input.data &lt;- data.frame(
 
 TEATIME.run(input.data,magos_object = FALSE,steps=1:5,output.folder = output.folder,id = samplename)</code></pre>
 <p>When mutations in diploid regions are too few to support analysis,
-users may consider using tools such as PureCN to obtain adjusted VAFs.
-The mean sequencing depth can then be used to simulate reference and
-alternate read counts as TEATIME inputs. However, adjusted VAFs can vary
-across methods and may be inaccurate in some cases; therefore, TEATIME
-estimates derived from such simulated counts should be interpreted with
-caution.</p>
+users may,as a last resort,consider using tools such as PureCN to obtain
+adjusted VAFs. The mean sequencing depth can then be used to simulate
+reference and alternate read counts as TEATIME inputs. However, because
+adjusted VAFs can vary across methods and may be inaccurate in some
+cases, this approach should be regarded as a fallback option only, and
+the resulting TEATIME estimates should be interpreted with caution.</p>
 </div>
 <div id="reference" class="section level3">
 <h3>Reference</h3>
 <p>Caravagna, G., Heide, T., Williams, M.J. et al. Subclonal
 reconstruction of tumors by using machine learning and population
-genetics. Nat Genet 52, 898–907 (2020). <a href="https://doi.org/10.1038/s41588-020-0675-5" class="uri">https://doi.org/10.1038/s41588-020-0675-5</a> Navid
-Ahmadinejad, Shayna Troftgruben, Junwen Wang, Pramod B Chandrashekar,
-Valentin Dinu, Carlo Maley, Li Liu, Accurate Identification of Subclones
-in Tumor Genomes, Molecular Biology and Evolution, Volume 39, Issue 7,
-July 2022, msac136, <a href="https://doi.org/10.1093/molbev/msac136" class="uri">https://doi.org/10.1093/molbev/msac136</a> Riester, M.,
-Singh, A.P., Brannon, A.R. et al. PureCN: copy number calling and SNV
-classification using targeted short read sequencing. Source Code Biol
-Med 11, 13 (2016). <a href="https://doi.org/10.1186/s13029-016-0060-z" class="uri">https://doi.org/10.1186/s13029-016-0060-z</a> Roth, A.,
-Khattra, J., Yap, D. et al. PyClone: statistical inference of clonal
-population structure in cancer. Nat Methods 11, 396–398 (2014). <a href="https://doi.org/10.1038/nmeth.2883" class="uri">https://doi.org/10.1038/nmeth.2883</a></p>
+genetics. Nat Genet 52, 898–907 (2020). <a href="https://doi.org/10.1038/s41588-020-0675-5" class="uri">https://doi.org/10.1038/s41588-020-0675-5</a></p>
+<p>Navid Ahmadinejad, Shayna Troftgruben, Junwen Wang, Pramod B
+Chandrashekar, Valentin Dinu, Carlo Maley, Li Liu, Accurate
+Identification of Subclones in Tumor Genomes, Molecular Biology and
+Evolution, Volume 39, Issue 7, July 2022, msac136, <a href="https://doi.org/10.1093/molbev/msac136" class="uri">https://doi.org/10.1093/molbev/msac136</a></p>
+<p>Riester, M., Singh, A.P., Brannon, A.R. et al. PureCN: copy number
+calling and SNV classification using targeted short read sequencing.
+Source Code Biol Med 11, 13 (2016). <a href="https://doi.org/10.1186/s13029-016-0060-z" class="uri">https://doi.org/10.1186/s13029-016-0060-z</a></p>
+<p>Roth, A., Khattra, J., Yap, D. et al. PyClone: statistical inference
+of clonal population structure in cancer. Nat Methods 11, 396–398
+(2014). <a href="https://doi.org/10.1038/nmeth.2883" class="uri">https://doi.org/10.1038/nmeth.2883</a></p>
 </div>
 </div>
 
