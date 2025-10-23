@@ -442,12 +442,14 @@ data[, CN := 2]</code></pre>
 <div id="input-options" class="section level3">
 <h3>Input options</h3>
 <p>TEATIME performs inference based on clustering results.<br />
-We provide two options:<br />
+We have two options:<br />
 1. Directly input the sequencing data, or<br />
 2. Run <strong>MAGOS</strong> for clustering before input.</p>
 <p>Other clustering methods can also be used — see option 3 on the <a href="https://github.com/liliulab/TEATIME">TEATIME GitHub page</a> for
 details.</p>
-<p>###process seq data</p>
+</div>
+<div id="process-seq-data-option-2" class="section level3">
+<h3>Process seq data (Option 2)</h3>
 <pre class="r"><code>data[, t_ref_count := DP - ALT]
 data[, t_alt_count := ALT]
 
@@ -464,7 +466,9 @@ head(input.data)</code></pre>
 ## 4:   108     7
 ## 5:    83     5
 ## 6:    96     6</code></pre>
-<p>###Run clustering</p>
+</div>
+<div id="run-clustering" class="section level3">
+<h3>Run clustering</h3>
 <pre class="r"><code>library(MAGOS)
 run &lt;- mag.single.run(input.data = input.data,fold=T)
 saveRDS(run,&quot;MAGOS.rds&quot;) #save it for TEATIME</code></pre>
@@ -503,6 +507,7 @@ TEATIME.result &lt;- TEATIME.run(
   magos_object = TRUE,        
   steps = 1:5,                
   output.folder = output.folder,
+  output.prefix=output.prefix,
   id = samplename,
   depth = depth                 # Optional; TEATIME can run without this
 )</code></pre>
@@ -534,8 +539,9 @@ cat(sprintf(&quot;Relative error of mutation rate: %.2f%%\n&quot;, mu_error * 10
 </div>
 <div id="alternative-input-options" class="section level3">
 <h3>Alternative input options</h3>
-<p>Finally, if users prefer not to perform clustering, they can directly
-input the sequencing data into <strong>TEATIME</strong>.</p>
+<p>Finally, if users prefer not to perform clustering by themselves,
+they can directly input the sequencing data into
+<strong>TEATIME</strong>.</p>
 <pre class="r"><code>input.data &lt;- data[, .(t_ref_count, t_alt_count,CN)]
 setnames(input.data, c(&quot;t_ref_count&quot;, &quot;t_alt_count&quot;,&quot;CN&quot;), c(&quot;REF&quot;, &quot;ALT&quot;,&quot;CN&quot;))
 TEATIME.result &lt;- TEATIME.run(input.data,steps = 0:5,output.folder = output.folder,id = samplename)</code></pre>
