@@ -69,7 +69,7 @@ TEATIME.run(input.file,magos_object = FALSE,steps=1:5)
 ```
 <br/><br/>
 
-An example of this procedure is provided in the [TEATIME example workflow](https://haichen294.github.io/teatime-workflow/).
+An example of this procedure is provided in the [TEATIME example workflow]([https://liliulab.github.io/TEATIME/]).
 
 Additional test data can be found in the data folder. To ensure the reproducibility of the test and control the consistency of the simulation, set `seed=123` (or any number). `123` is the default seed for generating `magos.sample.rda`. 
 This setting is limited to repeating the same results and is not recommended for real analysis.
