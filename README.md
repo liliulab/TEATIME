@@ -110,6 +110,34 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `id` | `"T01"` | Sample identifier in result table |
 | `write_final` | `TRUE` | Write `.final.txt` result file |
 | `seed` | `NA` | Random seed for reproducibility |
+| `debug` | `FALSE` | Enable debug mode (see below) |
+
+---
+
+## Debug Mode
+
+Set `debug = TRUE` to trace exactly where the pipeline fails. Each step prints its name, key intermediate values, and elapsed time. On error, the failing step and error message are shown before stopping.
+
+```r
+TEATIME.run(input, input_format = "magos", debug = TRUE)
+```
+
+Example output:
+```
+[DEBUG] prepare_data         ... OK (0.0s)  |  depth=120  n_mut=1008  n_clusters=3  main_vaf=0.500  magosp=0.480
+[DEBUG] run_rbest            ... OK (1.4s)  |  label=inter
+[DEBUG] run_estimates        ... OK (140.9s)  |  fit=18 rows  bac=30 rows  normal=34 rows
+[DEBUG] run_fitness          ... OK (0.5s)  |  fitmu=6.208  intermu=17.9  fitp=0.905  backp=0.105
+[DEBUG] post_process         ... OK (0.0s)  |  mu=17.9  s=0.442  emerge=10  tau=3.124  p=0.406
+```
+
+On failure:
+```
+[DEBUG] run_estimates        ... FAILED (2.3s)
+[DEBUG]   error  : object 'main_cluster_vaf' not found
+[DEBUG]   context: fit=0 rows  bac=0 rows  normal=0 rows
+Error: object 'main_cluster_vaf' not found
+```
 
 ---
 
