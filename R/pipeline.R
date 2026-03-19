@@ -542,6 +542,11 @@ post_process <- function(fitness_result, rbest_result, ctx) {
 #'   `"exponential"`). Register custom models with [register_growth_model()].
 #' @param verbose Logical. If `TRUE`, prints step-level timing messages
 #'   (default `FALSE`).
+#' @param debug Logical. If `TRUE`, wraps every pipeline step in error
+#'   handling and prints step name, key intermediate values, and elapsed time.
+#'   On failure the step name, error message, and available context are printed
+#'   before stopping, so the problem can be located immediately (default
+#'   `FALSE`).
 #' @param output_folder Character. Directory for output files (default `"./"`).
 #' @param output_prefix Character. Prefix for output file names (default
 #'   `"TEATIME"`).
@@ -588,27 +593,69 @@ TEATIME.run <- function(
   id = "T01",
   write_final = TRUE,
   seed = NA,
-  extra = list()
+  extra = list(),
+  debug = FALSE
 ) {
-  if (!is.na(seed)) {
-    set.seed(seed)
+  if (!is.na(seed)) set.seed(seed)
+
+  .step <- function(name, expr, info_fn = NULL) {
+    if (!debug) return(expr)
+    t0  <- proc.time()[["elapsed"]]
+    cat(sprintf("[DEBUG] %-20s ... ", name))
+    result <- tryCatch(expr, error = function(e) {
+      cat(sprintf("FAILED (%.1fs)\n", proc.time()[["elapsed"]] - t0))
+      cat(sprintf("[DEBUG]   error  : %s\n", conditionMessage(e)))
+      if (!is.null(info_fn)) {
+        info <- tryCatch(info_fn(), error = function(e2) NULL)
+        if (!is.null(info)) cat(sprintf("[DEBUG]   context: %s\n", info))
+      }
+      stop(e)
+    })
+    elapsed <- proc.time()[["elapsed"]] - t0
+    info_str <- if (!is.null(info_fn)) tryCatch(info_fn(result), error = function(e) "") else ""
+    cat(sprintf("OK (%.1fs)%s\n", elapsed, if (nzchar(info_str)) paste0("  |  ", info_str) else ""))
+    result
   }
-  ctx <- prepare_data(
-    input = input,
-    beta = beta,
-    depth = depth,
-    input_format = input_format,
-    growth_model = growth_model,
-    verbose = verbose,
-    output_folder = output_folder,
-    output_prefix = output_prefix,
-    id = id,
-    write_final = write_final,
-    seed = seed,
-    extra = extra
-  )
-  rbest <- run_rbest(ctx)
-  estimates <- run_estimates(ctx, p_thre = p_thre)
-  fitness <- run_fitness(estimates, ctx)
-  post_process(fitness, rbest, ctx)
+
+  ctx <- .step("prepare_data", prepare_data(
+    input = input, beta = beta, depth = depth,
+    input_format = input_format, growth_model = growth_model,
+    verbose = verbose, output_folder = output_folder,
+    output_prefix = output_prefix, id = id,
+    write_final = write_final, seed = seed, extra = extra
+  ), info_fn = function(r = NULL) {
+    if (is.null(r)) return(sprintf("input_format=%s  beta=%s  depth=?", input_format, beta))
+    sprintf("depth=%d  n_mut=%d  n_clusters=%d  main_vaf=%.3f  magosp=%.3f",
+            r$depth, length(r$vafdata$vaf.1),
+            length(unique(r$vafdata$colors)),
+            mean(r$main_cluster_vaf), r$magosp)
+  })
+
+  rbest <- .step("run_rbest", run_rbest(ctx),
+    info_fn = function(r = NULL) if (!is.null(r)) sprintf("label=%s", r$label %||% "?") else NULL)
+
+  estimates <- .step("run_estimates", run_estimates(ctx, p_thre = p_thre),
+    info_fn = function(r = NULL) {
+      if (is.null(r)) return(NULL)
+      fit_n   <- if (!is.null(r$fit$all))    nrow(r$fit$all)    else 0L
+      bac_n   <- if (!is.null(r$bac$all))    nrow(r$bac$all)    else 0L
+      normal_n <- if (!is.null(r$normal$all)) nrow(r$normal$all) else 0L
+      sprintf("fit=%d rows  bac=%d rows  normal=%d rows", fit_n, bac_n, normal_n)
+    })
+
+  fitness <- .step("run_fitness", run_fitness(estimates, ctx),
+    info_fn = function(r = NULL) {
+      if (is.null(r)) return(NULL)
+      sprintf("fitmu=%s  intermu=%s  fitp=%s  backp=%s",
+              round(r$fitmu,    3), round(r$intermu,  3),
+              round(r$fitp,     4), round(r$backp,    4))
+    })
+
+  .step("post_process", post_process(fitness, rbest, ctx),
+    info_fn = function(r = NULL) {
+      if (is.null(r) || !is.data.frame(r)) return(NULL)
+      sprintf("mu=%s  s=%s  emerge=%s  tau=%s  p=%s",
+              r$mu, round(r$s, 3), r$emergence_time,
+              round(r$tau, 3), round(r$p, 4))
+    })
 }

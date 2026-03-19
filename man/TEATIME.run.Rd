@@ -17,7 +17,8 @@ TEATIME.run(
   id = "T01",
   write_final = TRUE,
   seed = NA,
-  extra = list()
+  extra = list(),
+  debug = FALSE
 )
 }
 \arguments{
@@ -60,6 +61,12 @@ computed from the data.}
 \item{extra}{Named list of additional parameters passed to custom growth
 models via \code{ctx$extra} (default \code{list()}). Ignored by the built-in
 exponential model.}
+
+\item{debug}{Logical. If \code{TRUE}, wraps every pipeline step in error
+handling and prints step name, key intermediate values, and elapsed time.
+On failure the step name, error message, and available context are printed
+before stopping, so the problem can be located immediately (default
+\code{FALSE}).}
 }
 \value{
 A one-row \code{data.frame} with columns:
