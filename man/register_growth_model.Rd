@@ -9,10 +9,8 @@ register_growth_model(name, fn)
 \arguments{
 \item{name}{A single character string naming the model (e.g. \code{"exponential"}).}
 
-\item{fn}{A function accepting at least \code{i}, \code{p}, \code{beta} (named arguments,
-any order). Optionally declare a \code{ctx} argument to receive the full
-pipeline context for models that require extra parameters.
-Must return a single numeric VAF value.}
+\item{fn}{A function accepting at least \code{i}, \code{p}, \code{beta} as named arguments,
+and optionally \code{ctx}. Must return a single numeric VAF value.}
 }
 \value{
 \code{fn} invisibly.
@@ -22,21 +20,31 @@ Adds a growth model function to the TEATIME registry so it can be referenced
 by name in \code{\link[=TEATIME.run]{TEATIME.run()}} via the \code{growth_model} argument.
 }
 \details{
-The function must accept at least \code{i} (cell divisions, integer), \code{p} (clonal
-proportion, numeric), and \code{beta} (survival rate, numeric) as named arguments,
-and must return a single numeric VAF value. If the function also declares a
-\code{ctx} argument, the full pipeline context list is passed automatically —
-use this to access any additional model parameters stored in \code{ctx$extra}.
+The function must accept \code{i} (cell divisions), \code{p} (clonal proportion), and
+\code{beta} (survival rate) as named arguments and return a single numeric VAF
+value. Declare an optional \code{ctx} argument to receive the full pipeline
+context — use \code{ctx$extra} to pass in additional model parameters via the
+\code{extra} argument of \code{\link[=TEATIME.run]{TEATIME.run()}}.
 }
 \examples{
-# Simple model — only needs i, p, beta
+# Built-in exponential model (registered automatically on load)
 register_growth_model("exponential", function(i, p, beta) {
   p / 2 + (1 - p) / (2 * exp(log(2) * beta * i))
 })
 
-# Model with extra parameters — access them via ctx$extra
+# Logistic model — growth slows as the tumour approaches carrying capacity K
+# Extra parameters are passed in via extra = list(...) in TEATIME.run()
 register_growth_model("logistic", function(i, p, beta, ctx) {
   K <- ctx$extra$carrying_capacity \%||\% 1
   p / 2 + (1 - p) / (2 * (1 + (K / p - 1) * exp(-beta * i)))
 })
+
+\dontrun{
+TEATIME.run(
+  input        = input.file,
+  input_format = "magos",
+  growth_model = "logistic",
+  extra        = list(carrying_capacity = 2)
+)
+}
 }

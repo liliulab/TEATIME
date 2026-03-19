@@ -2,10 +2,7 @@
 
 export("%>%")
 export(TEATIME.run)
-export(register_adapter)
-export(register_estimator)
 export(register_growth_model)
-export(register_mu_method)
 import(Matrix)
 import(igraph)
 importFrom(dplyr,contains)
