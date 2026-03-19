@@ -12,7 +12,33 @@ register_estimator(name, fn)
 \item{fn}{A function whose first two arguments are \code{ctx} (the pipeline
 context list) and \code{p_thre} (the p-value threshold). Must return a named
 list with at least \code{all} (a data frame of candidates) and \code{select}
-(a one-row summary).}
+(a one-row summary).
+
+Built-in estimators (simplified logic):
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{# "fit" — scans clonal fractions and estimates mu + s for the fit case
+register_estimator("fit", function(ctx, p_thre) \{
+  results <- lapply(seq(0.3, 0.9, by = 0.1), function(p) \{
+    mu_df <- get_mu_method("slope")(p, ctx$main_cluster_vaf, ctx, p_thre)
+    data.frame(p = p, mu = mu_df$mu, s = NA_real_, cell.div = NA_real_)
+  \})
+  all <- do.call(rbind, results)
+  list(all = all, select = all[which.max(all$mu), , drop = FALSE])
+\})
+
+# "bac" — background case: uses second cluster VAF to anchor the estimate
+# "normal" — normal case: uses all subclonal clusters combined
+}\if{html}{\out{</div>}}
+
+Example — add a new estimator that uses a fixed known clonal fraction:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{register_estimator("fixed_p", function(ctx, p_thre) \{
+  p     <- ctx$extra$known_p
+  mu_df <- get_mu_method("peak")(p, ctx$main_cluster_vaf, ctx, p_thre)
+  row   <- data.frame(p = p, mu = mu_df$mu, s = NA_real_, cell.div = NA_real_)
+  list(all = row, select = row)
+\})
+}\if{html}{\out{</div>}}}
 }
 \value{
 \code{fn} invisibly.

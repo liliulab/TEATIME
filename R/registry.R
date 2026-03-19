@@ -93,6 +93,32 @@ register_growth_model <- function(name, fn) {
 #'   list with at least `all` (a data frame of candidates) and `select`
 #'   (a one-row summary).
 #'
+#' Built-in estimators (simplified logic):
+#' ```r
+#' # "fit" — scans clonal fractions and estimates mu + s for the fit case
+#' register_estimator("fit", function(ctx, p_thre) {
+#'   results <- lapply(seq(0.3, 0.9, by = 0.1), function(p) {
+#'     mu_df <- get_mu_method("slope")(p, ctx$main_cluster_vaf, ctx, p_thre)
+#'     data.frame(p = p, mu = mu_df$mu, s = NA_real_, cell.div = NA_real_)
+#'   })
+#'   all <- do.call(rbind, results)
+#'   list(all = all, select = all[which.max(all$mu), , drop = FALSE])
+#' })
+#'
+#' # "bac" — background case: uses second cluster VAF to anchor the estimate
+#' # "normal" — normal case: uses all subclonal clusters combined
+#' ```
+#'
+#' Example — add a new estimator that uses a fixed known clonal fraction:
+#' ```r
+#' register_estimator("fixed_p", function(ctx, p_thre) {
+#'   p     <- ctx$extra$known_p
+#'   mu_df <- get_mu_method("peak")(p, ctx$main_cluster_vaf, ctx, p_thre)
+#'   row   <- data.frame(p = p, mu = mu_df$mu, s = NA_real_, cell.div = NA_real_)
+#'   list(all = row, select = row)
+#' })
+#' ```
+#'
 #' @return `fn` invisibly.
 #' @export
 register_estimator <- function(name, fn) {
@@ -107,8 +133,37 @@ register_estimator <- function(name, fn) {
 
 #' Register a custom mu estimation method
 #'
-#' Adds a mu-estimation method to the TEATIME registry. Mu methods compute
-#' candidate mutation-rate values for a given clonal proportion and VAF set.
+#' Adds a mu-estimation method to the TEATIME registry. Mu methods estimate
+#' the mutation rate for a given clonal proportion and VAF set. The function
+#' receives `(p, vaf_set, ctx, p_thre)` and must return a `data.frame` with
+#' at least columns `mu`, `p`, and `score`.
+#'
+#' Built-in methods (simplified logic):
+#' ```r
+#' # "slope" — estimates mu from the slope of the sorted VAF distribution
+#' register_mu_method("slope", function(p, vaf_set, ctx, p_thre) {
+#'   sorted <- sort(vaf_set)
+#'   x      <- seq_along(sorted) / length(sorted)
+#'   slope  <- coef(lm(sorted ~ x))[2]
+#'   mu_est <- abs(slope) * ctx$depth * 2
+#'   data.frame(mu = mu_est, p = p, score = abs(slope))
+#' })
+#'
+#' # "peak" — estimates mu from the position of the dominant VAF peak
+#' register_mu_method("peak", function(p, vaf_set, ctx, p_thre) {
+#'   peak_vaf <- as.numeric(names(which.max(table(round(vaf_set, 2)))))
+#'   mu_est   <- ctx$depth * abs(peak_vaf - p / 2) * 4
+#'   data.frame(mu = mu_est, p = p, score = length(vaf_set))
+#' })
+#' ```
+#'
+#' Example — add a new method based on median VAF deviation:
+#' ```r
+#' register_mu_method("median_ratio", function(p, vaf_set, ctx, p_thre) {
+#'   mu_est <- max(1, ctx$depth * abs(median(vaf_set) - p / 2) * 4)
+#'   data.frame(mu = mu_est, p = p, score = 1)
+#' })
+#' ```
 #'
 #' @param name A single character string naming the method.
 #' @param fn A function whose first four arguments are `p`, `vaf_set`, `ctx`,
@@ -131,6 +186,35 @@ register_mu_method <- function(name, fn) {
 #' Adds an adapter function to the TEATIME registry. Adapters normalise raw
 #' input data into the standardised `data.frame` with columns `vaf.1`,
 #' `depth.1`, and `colors` that the pipeline requires.
+#'
+#' Built-in adapters (simplified logic):
+#' ```r
+#' # "magos" — corrects VAF for tumour purity from a MAGOS result object
+#' register_adapter("magos", function(input) {
+#'   purity        <- min(input$purity, 1)
+#'   vafdata       <- input$result
+#'   vafdata$vaf.1 <- vafdata$vaf.1 * (2 - purity) /
+#'                    (2 * vafdata$vaf.1 * (1 - purity) + purity)
+#'   vafdata[, c("vaf.1", "depth.1", "colors")]
+#' })
+#'
+#' # "vcf"  — runs MAGOS internally on a REF/ALT/CN data.frame
+#' # "raw"  — passes through a data.frame already in vaf.1/depth.1/colors form
+#' ```
+#'
+#' Example — add a new adapter for a custom TSV with different column names:
+#' ```r
+#' register_adapter("custom_tsv", function(input) {
+#'   data.frame(
+#'     vaf.1   = input$frequency,
+#'     depth.1 = input$coverage,
+#'     colors  = input$cluster
+#'   )
+#' })
+#'
+#' my_data <- read.table("clusters.tsv", header = TRUE, sep = "\t")
+#' TEATIME.run(my_data, input_format = "custom_tsv", ...)
+#' ```
 #'
 #' @param name A single character string naming the format (e.g. `"magos"`).
 #' @param fn A function whose first argument is `input` (the raw input object).

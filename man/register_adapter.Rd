@@ -20,3 +20,33 @@ Adds an adapter function to the TEATIME registry. Adapters normalise raw
 input data into the standardised \code{data.frame} with columns \code{vaf.1},
 \code{depth.1}, and \code{colors} that the pipeline requires.
 }
+\details{
+Built-in adapters (simplified logic):
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{# "magos" — corrects VAF for tumour purity from a MAGOS result object
+register_adapter("magos", function(input) \{
+  purity        <- min(input$purity, 1)
+  vafdata       <- input$result
+  vafdata$vaf.1 <- vafdata$vaf.1 * (2 - purity) /
+                   (2 * vafdata$vaf.1 * (1 - purity) + purity)
+  vafdata[, c("vaf.1", "depth.1", "colors")]
+\})
+
+# "vcf"  — runs MAGOS internally on a REF/ALT/CN data.frame
+# "raw"  — passes through a data.frame already in vaf.1/depth.1/colors form
+}\if{html}{\out{</div>}}
+
+Example — add a new adapter for a custom TSV with different column names:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{register_adapter("custom_tsv", function(input) \{
+  data.frame(
+    vaf.1   = input$frequency,
+    depth.1 = input$coverage,
+    colors  = input$cluster
+  )
+\})
+
+my_data <- read.table("clusters.tsv", header = TRUE, sep = "\\t")
+TEATIME.run(my_data, input_format = "custom_tsv", ...)
+}\if{html}{\out{</div>}}
+}
