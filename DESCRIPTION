@@ -1,0 +1,24 @@
+Package: TEATIME
+Title: Estimating EvolutionAry Events Through Single-Timepoint Sequencing
+Version: 2.0.0
+Authors@R:
+    person("Hai", "Chen", email = "hchen294@asu.edu", role = c("aut", "cre"))
+Description: Derives evolutionary parameters — mutation rate, selection coefficient,
+    and subclone emergence timing — from cancer sequencing data by analysing the
+    composition of variant allele frequency (VAF) clusters. Supports pluggable
+    growth models so custom tumour-evolution assumptions can be swapped in without
+    touching core estimation code.
+License: GPL (>= 3)
+Depends: R (>= 4.1.0)
+Imports:
+    dplyr (>= 1.1.2),
+    igraph,
+    Matrix,
+    stats,
+    strucchange (>= 1.5.3),
+    likelihoodExplore (>= 0.1.0),
+    RBesT (>= 1.6.6),
+    magrittr
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
