@@ -1,0 +1,4 @@
+.DS_Store
+*.final.txt
+.Rhistory
+.RData

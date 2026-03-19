@@ -249,25 +249,6 @@ TEATIME.run(
 )</code></pre>
 <blockquote><p><strong>Fallback:</strong> When diploid-region mutations are too few, tools such as PureCN can provide adjusted VAFs. Simulate REF/ALT counts from the mean depth and adjusted VAF, then use <code>input_format = "vcf"</code>. This is a last resort — interpret results with caution.</p></blockquote>
 
-<hr />
-<h2>Custom Growth Models <span class="badge">NEW in v2</span></h2>
-<p>TEATIME v2 supports pluggable growth models via <code>register_growth_model()</code>. Declare an optional <code>ctx</code> argument in your function to receive extra parameters passed through <code>extra&nbsp;=&nbsp;list(...)</code>.</p>
-
-<h3>Logistic Growth</h3>
-<p>Accounts for a finite carrying capacity — useful when resource competition limits tumour expansion:</p>
-<pre><code>register_growth_model("logistic", function(i, p, beta, ctx) {
-  K &lt;- ctx$extra$carrying_capacity %||% 1   <span class="comment"># carrying capacity, default 1</span>
-  p / 2 + (1 - p) / (2 * (1 + (K / p - 1) * exp(-beta * i)))
-})
-
-TEATIME.run(
-  input         = input.file,
-  input_format  = "magos",
-  growth_model  = "logistic",
-  extra         = list(carrying_capacity = 2),
-  output_folder = output.folder,
-  id            = samplename
-)</code></pre>
 
 <hr />
 <h2>References</h2>

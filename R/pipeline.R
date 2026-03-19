@@ -396,14 +396,14 @@ final_process <- function(data.rearrange, rbest_data, ctx) {
     )
     out_path <- file.path(ctx$output_folder, paste0(ctx$output_prefix, ".final.txt"))
     writeLines(header_comment, con = out_path)
-    write.table(
+    suppressWarnings(write.table(
       final.data,
       file = out_path,
       sep = "\t",
       row.names = FALSE,
       quote = FALSE,
       append = TRUE
-    )
+    ))
   }
   final.data
 }
@@ -520,7 +520,7 @@ post_process <- function(fitness_result, rbest_result, ctx) {
   final_process(data.rearrange, rbest_result, ctx)
 }
 
-#' Run the TEATIME v2 pipeline
+#' Run the TEATIME pipeline
 #'
 #' Main entry point for TEATIME. Accepts pre-processed MAGOS clustering output
 #' or raw VCF-like data, estimates evolutionary parameters, and optionally
@@ -554,7 +554,9 @@ post_process <- function(fitness_result, rbest_result, ctx) {
 #'   `"T01"`).
 #' @param write_final Logical. If `TRUE` (default), writes
 #'   `<output_prefix>.final.txt` to `output_folder`.
-#' @param seed Integer or `NA`. Random seed for reproducibility (default `NA`).
+#' @param seed Integer or `NA`. Random seed for reproducibility (default `123`).
+#'   Set to `NA` to disable seeding and run all estimators three independent
+#'   times for stochastic robustness.
 #' @param extra Named list of additional parameters passed to custom growth
 #'   models via `ctx$extra` (default `list()`). Ignored by the built-in
 #'   exponential model.
@@ -592,7 +594,7 @@ TEATIME.run <- function(
   output_prefix = "TEATIME",
   id = "T01",
   write_final = TRUE,
-  seed = NA,
+  seed = 123,
   extra = list(),
   debug = FALSE
 ) {

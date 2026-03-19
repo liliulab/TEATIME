@@ -19,8 +19,12 @@ compare_real_simu_peak <- function(
   tol = 1e-4
 ) {
   depth <- ctx$depth
+  mc_cores <- getOption("teatime.mc.cores", 1L)
+  mc_cores <- suppressWarnings(as.integer(mc_cores))
+  if (is.na(mc_cores) || mc_cores < 1L) mc_cores <- 1L
+  row_indices <- seq_len(nrow(peakdata))
 
-  t(vapply(seq_len(nrow(peakdata)), function(i) {
+  compute_row <- function(i) {
     row <- peakdata[i, , drop = FALSE]
     cell_div_value <- row[["cell.div"]]
     mu_value <- row[["mu_est"]]
@@ -51,7 +55,14 @@ compare_real_simu_peak <- function(
     })
     ll <- log_likelihood_mixture(data, vaf_list, depth)
     c(mean(p_values), ll, compute_AIC(ll, length(vaf_list)), compute_BIC(ll, length(vaf_list), length(data)))
-  }, numeric(4)))
+  }
+
+  if (.Platform$OS.type == "unix" && length(row_indices) > 1 && mc_cores > 1L) {
+    rows <- parallel::mclapply(row_indices, compute_row, mc.cores = min(length(row_indices), mc_cores))
+    t(do.call(cbind, rows))
+  } else {
+    t(vapply(row_indices, compute_row, numeric(4)))
+  }
 }
 
 calculate_mu <- function(data, ctx) {
@@ -921,21 +932,24 @@ run_estimates <- function(ctx, p_thre = 0.01) {
     mu_list <- c()
     up_list <- c()
     p_list <- c()
-    fit_cache <- NULL
+    use_cache <- !is.null(ctx$seed) && !is.na(ctx$seed)
+    est_cache <- NULL
 
     for (try_idx in 1:3) {
-      if (identical(estimator_name, "fit") && !is.null(fit_cache)) {
-        res <- .ok(fit_cache)
+      t_est <- proc.time()
+      if (use_cache && !is.null(est_cache)) {
+        res <- .ok(est_cache)
       } else {
         res <- tryCatch(.ok(estimator_fn(ctx = ctx, p_thre = p_thre)), error = .err)
       }
       if (res$status != "ok") {
-        .log(ctx, "EST", sprintf("%s try %d failed: %s", estimator_name, try_idx, res$message))
+        .log(ctx, "EST", sprintf("%s try %d failed: %s", estimator_name, try_idx, res$message), timer = t_est)
         next
       }
+      .log(ctx, "EST", sprintf("%s try %d", estimator_name, try_idx), timer = t_est)
       case_result <- res$value
-      if (identical(estimator_name, "fit") && is.null(fit_cache)) {
-        fit_cache <- case_result
+      if (use_cache && is.null(est_cache)) {
+        est_cache <- case_result
       }
       case_all <- case_result$all
       if (!is.null(case_all) && nrow(case_all) > 0) {
@@ -1287,7 +1301,14 @@ get_s <- function(p, ctx, p_thre = 1e-6) {
 
 find_s_from_predict <- function(predict.result, ctx) {
   p.list <- unique(predict.result$p)
-  s.results <- lapply(p.list, function(p) {
+  mc_cores <- getOption("teatime.mc.cores", 1L)
+  mc_cores <- suppressWarnings(as.integer(mc_cores))
+  if (is.na(mc_cores) || mc_cores < 1L) mc_cores <- 1L
+  map_fn <- if (.Platform$OS.type == "unix" && length(p.list) > 1 && mc_cores > 1L)
+    function(x, f) parallel::mclapply(x, f, mc.cores = min(length(x), mc_cores))
+  else
+    lapply
+  s.results <- map_fn(p.list, function(p) {
     df <- get_s(p, ctx, p_thre = 1e-6)
     df$p_value <- p
     data <- pick_s(df)
@@ -1361,7 +1382,10 @@ run_fitness <- function(estimates, ctx) {
   if (!is.null(fit.all) && nrow(fit.all[!is.na(fit.all$cell.div), , drop = FALSE]) > 0) {
     fit.all <- fit.all[!is.na(fit.all$cell.div), , drop = FALSE]
     reset_branch_seed(0L)
+    .log(ctx, "FIT", sprintf("find_s_from_predict: %d p-values", length(unique(fit.all$p))))
+    t_fit_s <- proc.time()
     fit.data <- find_s_from_predict(fit.all, ctx)
+    .log(ctx, "FIT", "find_s_from_predict done", timer = t_fit_s)
     if (!("mu" %in% colnames(fit.data))) {
       up_val <- fit.select.one$up
       mu.fit.pick <- if (is.finite(up_val)) up_val else fit.select.one$mu
@@ -1407,7 +1431,10 @@ run_fitness <- function(estimates, ctx) {
     # Legacy TEATIME consumes a different RNG stream before normal-case fitness.
     # Align the branch-local stream so seeded runs stay close to v1 outputs.
     reset_branch_seed(12L)
+    .log(ctx, "INTER", sprintf("find_s_from_predict: %d p-values", length(unique(inter.all$p))))
+    t_inter_s <- proc.time()
     inter.data <- find_s_from_predict(inter.all, ctx)
+    .log(ctx, "INTER", "find_s_from_predict done", timer = t_inter_s)
     if (!("mu" %in% colnames(inter.data))) {
       mu.inter.pick <- inter.select.one$mu
       inter.select.row <- inter.all[inter.all$mu == mu.inter.pick, , drop = FALSE]

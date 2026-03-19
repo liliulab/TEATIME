@@ -10,7 +10,7 @@
 #'     `exampledata.rds`. Use for reproducible validation runs without
 #'     re-running MAGOS.}
 #'   \item{`TEATIME.final.txt`}{Reference output from the original TEATIME
-#'     pipeline on the same data. Used to verify v2 results match within
+#'     pipeline on the same data. Used to verify results match within
 #'     tolerance.}
 #' }
 #'

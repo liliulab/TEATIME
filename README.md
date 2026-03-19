@@ -28,7 +28,7 @@ magos <- readRDS(system.file("extdata", "MAGOS.rds", package = "TEATIME"))
 input <- list(purity = magos$purity, result = magos$results)
 depth <- round(mean(magos$results$depth.1))
 
-result <- TEATIME.run(input, beta = 0.9, depth = depth, seed = 123)
+result <- TEATIME.run(input, beta = 0.9, depth = depth)
 print(result)
 #   name   mu      s  emergence_time   tau       p
 #   T01   17.9  0.442       10        3.12   0.406
@@ -45,13 +45,12 @@ TEATIME accepts three input formats via the `input_format` argument:
 A `data.frame` with three columns: reference counts, alternate counts, and copy number. Each row is one somatic mutation.
 
 | REF | ALT | CN |
-|-----|-----|----|
+|-----|-----|-----|
 | 120 |  30 |  2 |
 | 200 |  50 |  2 |
 
 ```r
-# e.g. your_vcf_data is a data.frame with REF, ALT, CN columns
-result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9, seed = 123)
+result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9)
 ```
 
 TEATIME runs MAGOS internally to cluster mutations before estimation.
@@ -61,8 +60,8 @@ TEATIME runs MAGOS internally to cluster mutations before estimation.
 A list with elements `purity` (numeric) and `result` (data.frame from MAGOS output):
 
 ```r
-input <- list(purity = magos.33$purity, result = magos.33$results)
-result <- TEATIME.run(input, beta = 0.9, depth = 1000, seed = 123)
+input <- list(purity = magos$purity, result = magos$results)
+result <- TEATIME.run(input, beta = 0.9, depth = depth)
 ```
 
 For more on MAGOS, see [github.com/liliulab/magos](https://github.com/liliulab/magos).
@@ -109,7 +108,7 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `output_prefix` | `"TEATIME"` | Prefix for output file names |
 | `id` | `"T01"` | Sample identifier in result table |
 | `write_final` | `TRUE` | Write `.final.txt` result file |
-| `seed` | `NA` | Random seed for reproducibility |
+| `seed` | `123` | Random seed for reproducibility; set to `NA` to run estimators three times independently for stochastic robustness |
 | `debug` | `FALSE` | Enable debug mode (see below) |
 
 ---
@@ -119,59 +118,33 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 Set `debug = TRUE` to trace exactly where the pipeline fails. Each step prints its name, key intermediate values, and elapsed time. On error, the failing step and error message are shown before stopping.
 
 ```r
-TEATIME.run(input, input_format = "magos", debug = TRUE)
-```
-
-Example output:
-```
-[DEBUG] prepare_data         ... OK (0.0s)  |  depth=120  n_mut=1008  n_clusters=3  main_vaf=0.500  magosp=0.480
-[DEBUG] run_rbest            ... OK (1.4s)  |  label=inter
-[DEBUG] run_estimates        ... OK (140.9s)  |  fit=18 rows  bac=30 rows  normal=34 rows
-[DEBUG] run_fitness          ... OK (0.5s)  |  fitmu=6.208  intermu=17.9  fitp=0.905  backp=0.105
-[DEBUG] post_process         ... OK (0.0s)  |  mu=17.9  s=0.442  emerge=10  tau=3.124  p=0.406
-```
-
-On failure:
-```
-[DEBUG] run_estimates        ... FAILED (2.3s)
-[DEBUG]   error  : object 'main_cluster_vaf' not found
-[DEBUG]   context: fit=0 rows  bac=0 rows  normal=0 rows
-Error: object 'main_cluster_vaf' not found
+TEATIME.run(input, debug = TRUE)
 ```
 
 ---
 
 ## Test Data
 
-Three files are bundled in `inst/extdata` for validation:
+Two files are bundled in `inst/extdata` for validation:
 
 | File | Description |
 |------|-------------|
 | `exampledata.rds` | Raw somatic mutation data (REF/ALT counts) |
 | `MAGOS.rds` | Pre-computed MAGOS clustering result from the same data |
-| `TEATIME.final.txt` | Reference output from the original TEATIME pipeline |
 
 ```r
-# Access with system.file()
 magos <- readRDS(system.file("extdata", "MAGOS.rds", package = "TEATIME"))
 input <- list(purity = magos$purity, result = magos$results)
-result <- TEATIME.run(input, beta = 0.9,
-                      depth = round(mean(magos$results$depth.1)),
-                      seed = 123)
+result <- TEATIME.run(input, beta = 0.9, depth = round(mean(magos$results$depth.1)))
 ```
 
 ---
 
-## Extensibility — Custom Growth Models
+## Extensibility — Custom Growth Models ⭐ New
 
-TEATIME v2 supports pluggable growth models. Register any model with `register_growth_model()`:
+TEATIME supports pluggable growth models. Register any model with `register_growth_model()`:
 
 ```r
-# Simple model — just needs i, p, beta
-register_growth_model("exponential2", function(i, p, beta) {
-  p / 2 + (1 - p) / (2 * exp(log(2) * beta * i))
-})
-
 # Model with extra parameters — declare ctx to receive the pipeline context
 register_growth_model("logistic", function(i, p, beta, ctx) {
   K <- ctx$extra$carrying_capacity  # any extra param passed via extra=list(...)
@@ -188,7 +161,7 @@ The function must accept `i`, `p`, and `beta` as named arguments and return a si
 
 ## Reference
 
-Manuscript in preparation.
+Hai Chen, Jingmin Shu, Rekha Mudappathi, Elaine Li, Panwen Wang, Leif Bergsagel, Ping Yang, Zhifu Sun, Logan Zhao, Changxin Shi, Jeffrey P Townsend, Carlo Maley, Li Liu, Competing Subclones and Fitness Diversity Shape Tumor Evolution Across Cancer Types, *Bioinformatics*, 2026;, btag127, https://doi.org/10.1093/bioinformatics/btag127
 
 ## Contributors
 
