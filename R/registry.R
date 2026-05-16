@@ -43,7 +43,7 @@
 #' Adds a growth model function to the TEATIME registry so it can be referenced
 #' by name in [TEATIME.run()] via the `growth_model` argument.
 #'
-#' The function must accept `i` (cell divisions), `p` (clonal proportion), and
+#' The function must accept `i` (cell divisions), `p` (subclonal fraction), and
 #' `beta` (survival rate) as named arguments and return a single numeric VAF
 #' value. Declare an optional `ctx` argument to receive the full pipeline
 #' context — use `ctx$extra` to pass in additional model parameters via the

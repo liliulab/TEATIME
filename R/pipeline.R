@@ -65,10 +65,38 @@ prepare_data <- function(
   write_final = TRUE,
   score_method = "bic",
   extra = list(),
-  seed = NA
+  seed = NA,
+  save_magos = FALSE
 ) {
-  adapter <- get_adapter(input_format)
-  standardized <- adapter(input)
+  # `save_magos` is only valid for input_format == "vcf" (the only mode
+  # where TEATIME runs MAGOS internally). Warn loudly if a user mistakenly
+  # passes save_magos with magos / raw input -- those modes have no
+  # MAGOS object to save.
+  if (!isFALSE(save_magos) && !identical(input_format, "vcf")) {
+    warning(sprintf("`save_magos` is only honored when input_format = 'vcf' (got '%s'); ignoring.",
+                    input_format))
+    save_magos <- FALSE
+  }
+
+  # When save_magos is set in vcf mode, intercept the adapter so we can write
+  # the intermediate MAGOS clustering to disk. TRUE -> default path
+  # <output_folder>/<output_prefix>_MAGOS.rds.  A string -> custom path.
+  if (identical(input_format, "vcf") && !isFALSE(save_magos)) {
+    input2 <- input
+    input2[, ncol(input2)] <- as.numeric(input2[, ncol(input2)])
+    input2 <- input2[input2[, ncol(input2)] == 2, , drop = FALSE]
+    input2 <- input2[, -ncol(input2), drop = FALSE]
+    mag <- mag.single.run(input2, fold = TRUE)
+    out_path <- if (is.character(save_magos)) save_magos
+                else file.path(output_folder, paste0(output_prefix, "_MAGOS.rds"))
+    dir.create(dirname(out_path), showWarnings = FALSE, recursive = TRUE)
+    saveRDS(mag, out_path)
+    cat(sprintf("[TEATIME] saved MAGOS clustering -> %s\n", out_path)); flush.console()
+    standardized <- adapt_magos(mag)
+  } else {
+    adapter <- get_adapter(input_format)
+    standardized <- adapter(input)
+  }
 
   if (is.na(depth)) {
     depth <- round(mean(standardized$depth.1))
@@ -388,11 +416,11 @@ final_process <- function(data.rearrange, rbest_data, ctx) {
 
   if (ctx$write_final) {
     header_comment <- paste0(
-      "## name: sample ID | mu: mutation rate (mutations/cell division) | ",
+      "## name: sample ID | mu: mutation rate | ",
       "s: selection coefficient | ",
-      "emergence_time: emergence time of subclone (cell divisions) | ",
-      "tau: subclone expansion score (tend/emergence_time) | ",
-      "p: clonal fraction\n"
+      "emergence_time: emergence time of the subclone | ",
+      "tau: subclone expansion score | ",
+      "p: subclonal fraction\n"
     )
     out_path <- file.path(ctx$output_folder, paste0(ctx$output_prefix, ".final.txt"))
     writeLines(header_comment, con = out_path)
@@ -564,12 +592,11 @@ post_process <- function(fitness_result, rbest_result, ctx) {
 #' @return A one-row `data.frame` with columns:
 #'   \describe{
 #'     \item{name}{Sample ID (`id` argument).}
-#'     \item{mu}{Estimated mutation rate (mutations per cell division).}
-#'     \item{s}{Estimated selection coefficient.}
-#'     \item{emergence_time}{Estimated emergence time of the subclone (cell
-#'       divisions).}
-#'     \item{tau}{Subclone expansion score (tend / emergence_time).}
-#'     \item{p}{Estimated clonal fraction.}
+#'     \item{mu}{Mutation rate.}
+#'     \item{s}{Selection coefficient.}
+#'     \item{emergence_time}{Emergence time of the subclone.}
+#'     \item{tau}{Subclone expansion score.}
+#'     \item{p}{Subclonal fraction.}
 #'   }
 #'   All numeric columns are `NA` when the pipeline cannot produce a reliable
 #'   estimate.
@@ -596,12 +623,17 @@ TEATIME.run <- function(
   write_final = TRUE,
   seed = 123,
   extra = list(),
-  debug = FALSE
+  debug = FALSE,
+  save_magos = FALSE
 ) {
   if (!is.na(seed)) set.seed(seed)
 
+  # When debug = FALSE, silence the noisy "max(empty)" / "ties in p-value"
+  # warnings that come from estimate.R's many max() / wilcox calls -- they
+  # are harmless to the final result. Wrap the WHOLE pipeline body so every
+  # step is silenced. Set debug = TRUE to see them again.
   .step <- function(name, expr, info_fn = NULL) {
-    if (!debug) return(expr)
+    if (!debug) return(suppressWarnings(expr))
     t0  <- proc.time()[["elapsed"]]
     cat(sprintf("[DEBUG] %-20s ... ", name))
     result <- tryCatch(expr, error = function(e) {
@@ -624,7 +656,8 @@ TEATIME.run <- function(
     input_format = input_format, growth_model = growth_model,
     verbose = verbose, output_folder = output_folder,
     output_prefix = output_prefix, id = id,
-    write_final = write_final, seed = seed, extra = extra
+    write_final = write_final, seed = seed, extra = extra,
+    save_magos = save_magos
   ), info_fn = function(r = NULL) {
     if (is.null(r)) return(sprintf("input_format=%s  beta=%s  depth=?", input_format, beta))
     sprintf("depth=%d  n_mut=%d  n_clusters=%d  main_vaf=%.3f  magosp=%.3f",

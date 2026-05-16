@@ -2,3 +2,4 @@
 ^.*\.Rproj$
 ^README\.md$
 ^vignettes$
+^vignettes/MAGOS\.rds$

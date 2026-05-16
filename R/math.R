@@ -107,8 +107,15 @@ generate_bootstrap_samples <- function(original_data, n_samples, num_decimal) {
   if (length(x) == 0L || length(y) == 0L) {
     return(NA_real_)
   }
-  cmp <- outer(x, y, FUN = "-")
-  abs((sum(cmp > 0) - sum(cmp < 0)) / (length(x) * length(y)))
+  ## Bit-identical replacement for outer(x, y, "-")-based counting.
+  ## Sort y once, then for each x_i count y < x_i and y <= x_i via
+  ## findInterval. O((n+m) log m) instead of O(n*m).
+  nx <- length(x); ny <- length(y)
+  y_sorted <- sort(y)
+  n_lt <- findInterval(x, y_sorted, left.open = TRUE)  # # y_j  <  x_i
+  n_le <- findInterval(x, y_sorted)                    # # y_j <= x_i
+  n_gt <- ny - n_le                                    # # y_j  >  x_i
+  abs((sum(n_lt) - sum(n_gt)) / (nx * ny))
 }
 
 log_likelihood_mixture <- function(data, p_vec, depth) {

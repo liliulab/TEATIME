@@ -20,16 +20,13 @@ devtools::install_github("liliulab/TEATIME")
 
 ## Quick Start
 
+Run TEATIME end-to-end from raw read counts in a single call
+
 ```r
 library(TEATIME)
-
-# Load the bundled MAGOS clustering result
-magos <- readRDS(system.file("extdata", "MAGOS.rds", package = "TEATIME"))
-input <- list(purity = magos$purity, result = magos$results)
-depth <- round(mean(magos$results$depth.1))
-
-result <- TEATIME.run(input, input_format = "magos", beta = 0.9, depth = depth)
-
+# input has 3 columns: REF, ALT, CN (per-mutation copy number)
+result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9)
+print(result)
 ```
 
 ---
@@ -49,9 +46,14 @@ A `data.frame` with three columns: reference counts, alternate counts, and copy 
 
 ```r
 result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9)
+
+# Optionally persist the intermediate MAGOS clustering for re-use later
+TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9,
+            save_magos = TRUE)   # writes <output_folder>/<prefix>_MAGOS.rds
 ```
 
-TEATIME runs MAGOS internally to cluster mutations before estimation.
+TEATIME runs MAGOS internally to cluster mutations before estimation. 
+
 
 ### Option 2 — MAGOS clustering result (`input_format = "magos"`)
 
@@ -62,7 +64,7 @@ input <- list(purity = magos$purity, result = magos$results)
 result <- TEATIME.run(input, input_format = "magos", beta = 0.9, depth = depth)
 ```
 
-For more on MAGOS, see [github.com/liliulab/magos](https://github.com/liliulab/magos).
+For more on MAGOS, see [github.com/liliulab/magos](https://github.com/liliulab/magos). An example of this procedure is provided in the [TEATIME example workflow](https://htmlpreview.github.io/?https://github.com/liliulab/TEATIME/blob/main/vignettes/workflow.html).
 
 ### Option 3 — Pre-clustered data (`input_format = "raw"`)
 
@@ -81,11 +83,11 @@ result <- TEATIME.run(my_data, input_format = "raw", beta = 0.9)
 | Column | Description |
 |--------|-------------|
 | `name` | Sample ID |
-| `mu` | Mutation rate (mutations per cell division) |
+| `mu` | Mutation rate |
 | `s` | Selection coefficient |
-| `emergence_time` | Emergence time of the subclone (cell divisions) |
-| `tau` | Subclone expansion score (`tend / emergence_time`) |
-| `p` | Clonal fraction |
+| `emergence_time` | Emergence time of the subclone |
+| `tau` | Subclone expansion score |
+| `p` | Subclonal fraction |
 
 When written to disk (`write_final = TRUE`), the file includes a `##` header line explaining each column.
 
@@ -98,16 +100,15 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `input` | — | Input data (see Input Formats) |
 | `beta` | `0.9` | Cell survival rate |
 | `depth` | `NA` | Mean sequencing depth (auto-computed if `NA`) |
-| `p_thre` | `0.01` | P-value threshold for breakpoint tests |
 | `input_format` | `"vcf"` | One of `"vcf"`, `"magos"`, `"raw"` |
-| `growth_model` | `"exponential"` | Growth model name (see Extensibility) |
 | `verbose` | `FALSE` | Print step-level progress |
 | `output_folder` | `"./"` | Directory for output files |
 | `output_prefix` | `"TEATIME"` | Prefix for output file names |
 | `id` | `"T01"` | Sample identifier in result table |
 | `write_final` | `TRUE` | Write `.final.txt` result file |
 | `seed` | `123` | Random seed for reproducibility; set to `NA` to run estimators three times independently for stochastic robustness |
-| `debug` | `FALSE` | Enable debug mode (see below) |
+| `debug` | `FALSE` | Enable debug mode |
+| `save_magos` | `FALSE` | `vcf` mode only: when `TRUE`, save the intermediate MAGOS clustering to `<output_folder>/<output_prefix>_MAGOS.rds`|
 
 ---
 
@@ -138,7 +139,7 @@ result <- TEATIME.run(input, input_format = "magos", beta = 0.9, depth = round(m
 
 ---
 
-## Extensibility — Custom Growth Models ⭐ New
+## Extensibility — Custom Growth Models ⭐
 
 TEATIME supports pluggable growth models. Register any model with `register_growth_model()`:
 
@@ -159,7 +160,7 @@ The function must accept `i`, `p`, and `beta` as named arguments and return a si
 
 ## Reference
 
-Chen H, Shu J, Mudappathi R, Li E, Wang P, Bergsagel L, Yang P, Sun Z, Zhao L, Shi C, Townsend JP, Maley C, Liu L. Competing Subclones and Fitness Diversity Shape Tumor Evolution Across Cancer Types. *Bioinformatics*. 2026 Mar 12:btag127. doi: 10.1093/bioinformatics/btag127. PMID: 41826799.
+Chen H, Shu J, Mudappathi R, Li E, Wang P, Bergsagel L, Yang P, Sun Z, Zhao L, Shi C, Townsend JP, Maley C, Liu L. Competing subclones and fitness diversity shape tumor evolution across cancer types. Bioinformatics. 2026 Feb 28;42(3):btag127. doi: 10.1093/bioinformatics/btag127. PMID: 41826799; PMCID: PMC13025073.
 
 ## Contributors
 
