@@ -14,8 +14,6 @@
 devtools::install_github("liliulab/TEATIME")
 ```
 
-**Dependencies**: `dplyr`, `igraph`, `Matrix`, `strucchange`, `likelihoodExplore`, `RBesT (>= 1.6.6)`, `magrittr`
-
 ---
 
 ## Quick Start
