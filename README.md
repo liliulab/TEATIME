@@ -137,7 +137,7 @@ result <- TEATIME.run(input, input_format = "magos", beta = 0.9, depth = round(m
 
 ---
 
-## Extensibility — Custom Growth Models ⭐
+## Extensibility — Custom Growth Models 
 
 TEATIME supports pluggable growth models. Register any model with `register_growth_model()`:
 
