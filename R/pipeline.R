@@ -56,7 +56,7 @@ prepare_data <- function(
   input,
   beta,
   depth = NA,
-  input_format = "magos",
+  input_format = "vcf",
   growth_model = "exponential",
   verbose = FALSE,
   output_folder = "./",
@@ -536,7 +536,7 @@ post_process <- function(fitness_result, rbest_result, ctx) {
 #'   computed from the data.
 #' @param p_thre Numeric. P-value threshold for breakpoint and fitness tests
 #'   (default `0.01`).
-#' @param input_format Character. One of `"magos"` (default), `"vcf"`, or
+#' @param input_format Character. One of `"vcf"` (default), `"magos"`, or
 #'   `"raw"`.
 #' @param growth_model Character. Name of a registered growth model (default
 #'   `"exponential"`). Register custom models with [register_growth_model()].
@@ -587,7 +587,7 @@ TEATIME.run <- function(
   beta = 0.9,
   depth = NA,
   p_thre = 0.01,
-  input_format = "magos",
+  input_format = "vcf",
   growth_model = "exponential",
   verbose = FALSE,
   output_folder = "./",

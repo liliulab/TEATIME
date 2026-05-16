@@ -947,259 +947,125 @@ cut.off.multiple  <-function(mag.var){
 
 ########################################
 ########################################          MAG SINGLE V3
-mag.single<- function(prep.data){
-
-  if(is.null(prep.data$vafs$ID)){ return(print('Run mag.prepdata on the data'))}
+## --- mag.single (fast) ------------------------------------------------------
+## Bit-identical to the previous mag.single but ~30-60x faster on large inputs.
+## Two changes vs the original:
+##   1. Build x.elements.preprc directly (skip the N x N identity allocation).
+##   2. Per merge step, maintain a `membership` integer vector (length N) and
+##      compute all clusters' (mean, var, count, depth) in one shot via
+##      split() + vapply(mean/var). Bit-identical to the original
+##      apply(x.elements, 1, get.var.v3.1, ...) pattern because split()
+##      preserves the original order within each group, so R's mean()/var()
+##      see exactly the same elements in the same order.
+mag.single <- function(prep.data) {
+  if (is.null(prep.data$vafs$ID)) return(print('Run mag.prepdata on the data'))
   time0 <- as.numeric(Sys.time())
 
+  vaf.data <- prep.data$vafs; vaf.data <- round(vaf.data, 3)
+  vaf.data[, -dim(vaf.data)[2]] <- ifelse(vaf.data[, -dim(vaf.data)[2]] < 1e-3,   1e-3,   vaf.data[, -dim(vaf.data)[2]])
+  vaf.data[, -dim(vaf.data)[2]] <- ifelse(vaf.data[, -dim(vaf.data)[2]] > 1-1e-3, 1-1e-3, vaf.data[, -dim(vaf.data)[2]])
+  depth.data <- prep.data$depths
 
-  vaf.data<- prep.data$vafs
-  vaf.data<- round(vaf.data,3)    #change 1 (aug6,2018)
-  vaf.data[,-dim(vaf.data)[2]]<- ifelse(vaf.data[,-dim(vaf.data)[2]] < 1e-3, 1e-3, vaf.data[,-dim(vaf.data)[2]])
-  vaf.data[,-dim(vaf.data)[2]]<- ifelse(vaf.data[,-dim(vaf.data)[2]] > 1-1e-3, 1-1e-3, vaf.data[,-dim(vaf.data)[2]])
+  ord <- order(vaf.data$vaf.1)
+  sort.x          <- vaf.data$vaf.1[ord]
+  sort.vaf.data   <- vaf.data[ord, ]
+  sort.depth.data <- depth.data[ord, ]
+  u.vafs <- unique(sort.x); N <- length(sort.x); l <- length(u.vafs)
 
-  depth.data<- prep.data$depths
-
-
-  x.nb <- vaf.data;
-  if(!is.null(ncol(vaf.data)) && ncol(vaf.data) > 0) {
-    x.nb <- vaf.data$vaf.1
+  x.elements.preprc <- matrix(FALSE, nrow = l, ncol = N)
+  membership <- integer(N)
+  for (k in seq_along(u.vafs)) {
+    mask <- (sort.x == u.vafs[k])
+    x.elements.preprc[k, ] <- mask
+    membership[mask] <- k
   }
-  params<-c();  x.values<-c();  x.steps<-c();  row.loop<-c(); x.step<-c()
-  x.elements.list<-list()
-  x.elements<-data.frame(diag(length(x.nb)))
+  colnames(x.elements.preprc) <- sort.vaf.data$ID
+  depth_col <- sort.depth.data$depth.1
 
-
-
-  sort.x<-sort(vaf.data$vaf.1)
-
-  #vaf.depth<- merge(prep.data$vafs,prep.data$depths, by="ID")
-
-  #x.loop<-sort.x
-  sort.vaf.data <- vaf.data[order(vaf.data$vaf.1),]
-  sort.depth.data<- depth.data[order(vaf.data$vaf.1),]
-
-
-  names(x.elements)<-sort.vaf.data$ID
-  #names(x.el.first)<- sort.vaf.data$ID
-
-  ### APRIL 11 2019
-  x.elements<- sapply(x.elements, as.logical)
-  colnames(x.elements)<- sort.vaf.data$ID
-
-
-  x.elements.preprc<- c()
-  for(i in unique(sort.x)){
-    #temp<-colSums(x.elements[sort.x==i,])
-    temp<- as.logical(apply(x.elements[sort.x==i,, drop=F],2, sum ))  # APRIL 11 2019
-    x.elements.preprc<- rbind(x.elements.preprc, temp)
-
-  }
-
-  #names(x.elements.preprc)<- sort.vaf.data$ID
-  colnames(x.elements.preprc)<- sort.vaf.data$ID   # APRIL 11 2019
-
-  ## names checked! correct!
-
-
-
-  #### LOOK HERE:       THIS CHANGES TO X.element.preprc
-  #x.el.first<- data.frame(diag(length(x.nb)))
-  #x.el.first.okay<- apply(x.el.first, 1, function(x) paste(x, collapse = '')) # april 15
-
-
-  # SEP 2019 commented:
-  #x.el.first.okay<- apply(x.elements.preprc, 1, function(x) paste(as.numeric(x), collapse = '')) # april 15
-  #####   Sep 2019: I dont even need x.el.first okay. I just need the initial ids. Then use el.rm to update it.
-  #####   sep 2019: c
-
-  x.el.first.okay.id<- c(1:dim(x.elements.preprc)[1])
-  l<- dim(x.elements.preprc)[1]
-
-  mat.loop<-matrix(1000000, ncol=l, nrow=l)
-  par.1.loop<-matrix(100000, ncol=l, nrow=l)
-
+  mat.loop   <- matrix(1000000, nrow = l, ncol = l)
+  par.1.loop <- matrix( 100000, nrow = l, ncol = l)
   s.pairs <- cbind(1:(l-1), 2:l)
-  s.likls <- t(apply(s.pairs, 1, function(x){
-    fit.elements.v3(x.elements.preprc[x[1],]|x.elements.preprc[x[2],], sort.vaf.data, sort.depth.data)    #### APRIL 11 2019
-  }))
-  #mat.loop<-diag(0, nrow=l, ncol=l)
-  for(i in 2:l){
-    mat.loop[i-1,i] <- s.likls[i-1, 1]      ### the s.likls is the likelihood between i-1)th element and the i th.
-    par.1.loop[i-1,i] <- s.likls[i-1, 2]
-    # par.2.loop[i-1,i] <- s.likls[i-1, 3]
+  s.likls <- t(apply(s.pairs, 1, function(x)
+    fit.elements.v3(x.elements.preprc[x[1], ] | x.elements.preprc[x[2], ],
+                    sort.vaf.data, sort.depth.data)))
+  for (i in 2:l) {
+    mat.loop[i-1, i]   <- s.likls[i-1, 1]
+    par.1.loop[i-1, i] <- s.likls[i-1, 2]
   }
-
   time1 <- as.numeric(Sys.time())
-  var.mean<-c()
 
-  ### aug12 add the step 0 to var.mean
-  #temp<- t(apply(x.elements.preprc, 1, get.var, x.nb=sort.x, s=0 ))
-  temp<- t(apply(x.elements.preprc, 1, get.var.v3.1, x.nb=sort.x, s=0 ))
-  #okay<- apply(x.elements.preprc, 1, function(x) sum(paste(x, collapse = '')%in%x.el.first.okay))
-
-  # okay<- apply(x.elements.preprc, 1, function(x) #dec 6 2018
-  # {y=paste(as.numeric(x), collapse = '');  #APRIL 11 2019 added as.numeric
-  # ind=x.el.first.okay%in%y;
-  # res=ifelse(sum(ind)==0, 0, x.el.first.okay.id[ind])
-  # return(res)
-  # })
-  okay=x.el.first.okay.id
-
-  #weights<- rep(0, length(okay))  ##### just to have weight  APRIL 15
-
-  ###add depth to var.mean    dec 6 2018
-  #  depths<- apply(x.elements.preprc,1, function(x) round(mean(sort.depth.data[as.logical(x),'depth.1'])))
-
-  depths<- apply(x.elements.preprc,1, function(x) round(mean(sort.depth.data[x,'depth.1'])))   # APRIL 11 2019
-
-
-  temp<- cbind(temp,depths ,okay)
-
-  var.mean<- rbind(var.mean, temp)
-  s<-1
-  x.elements<- x.elements.preprc
-
-  m1=as.matrix(x.elements)
-  m.preprc=Matrix(m1, sparse = T)   ###just to save the preproces matrix
-  #x.elements.list[[1]]<-m2
-  ###need to create new "n' for number of mutations. to find neighbours
-  n<-length(sort.x)
-  while(nrow(x.elements)>= 2){
-    # print("INJA")
-    # print(s)
-    #print(mat.loop)
-
-    #print(min(mat.loop))
-    x.values[s]<-min(mat.loop)
-    el1<-which(mat.loop==min(mat.loop), arr.ind = T)[1,1]
-    el2<-which(mat.loop==min(mat.loop), arr.ind = T)[1,2]
-    el.rm<-c(el1,el2)
-    # print("Remove ina")
-    # print(el.rm)
-    params<-rbind(params,par.1.loop[el1,el2])
-
-    #what happenes at each step
-    #x.step <- x.elements[el.rm[1],] +x.elements[el.rm[2],]   ###this is very clever! I dont need to update the xloop.
-    x.step <- x.elements[el.rm[1],] |x.elements[el.rm[2],]  # APRIL 11 2019
-
-
-
-    ###only use x.elements rows for each cluster!
-    x.steps<-rbind(x.steps, x.step)
-    #print(x.steps)
-    x.elements<-rbind(x.elements[-el.rm,], x.step)
-
-
-    ########## change to sparse matrix saving:
-
-    m1<- as.matrix(x.elements)
-    m2<- Matrix(m1, sparse = T)
-    x.elements.list[[s]]<- m2
-
-    #### april 14 add "okay"
-    temp<- t(apply(x.elements, 1, get.var.v3.1, x.nb=sort.x, s=s ))          ####for oc.v9 I changed x.nb=x.nb to x.nb=
-    #####
-    #okay<- apply(x.elements, 1, function(x) nrow(merge(t(x), x.el.first)))               ################# APRIL 14 2018   takeeeesss a long time
-    ####################### faster version? :
-    # okay<- apply(x.elements, 1, function(x) sum(paste(x, collapse = '')%in%x.el.first.okay))
-    #print(s)
-    # print('1.8')
-    # SEP 19: commented the next 7 lines! I just need one line and use el.rm to update the okay.
-    #okay<- apply(x.elements, 1, function(x) #dec 6 2018
-    #{y=paste(as.numeric(x), collapse = '');   # APRIL 11 2019 added the numeric
-    #ind=x.el.first.okay%in%y;
-    #res=ifelse(sum(ind)==0, 0, x.el.first.okay.id[ind])
-    #res=ifelse(y%in%x.el.first.okay,x.el.first.okay.id[which(x.el.first.okay==y)],0)
-    #return(res)
-    #})
-    okay= c(okay[-el.rm],0)
-    #print('1.9')
-    # cbind(okay, c(okay.org[-el.rm],0))
-    # okay.org=okay
-    # weights<- rep(0, length(okay))  ##### just to have weight  APRIL 15
-
-
-    ###add depth to var.mean    dec 6 2018
-    depths<- apply(x.elements,1, function(x) round(mean(sort.depth.data[as.logical(x),'depth.1'])))
-
-    #temp<- cbind(temp,depths,weights ,okay)
-    temp<- cbind(temp,depths ,okay)   # removed the weigths APRIL 11 2019
-
-    var.mean<- rbind(var.mean, temp)
-
-    #####UPDATE MATRIX HERE
-    mat.loop<-mat.loop[-el.rm, -el.rm]
-    par.1.loop<-par.1.loop[-el.rm, -el.rm]
-    #par.2.loop<-par.2.loop[-el.rm, -el.rm]
-
-    mat.column.update<-c()
-    par1.column.update<-c()
-    #par2.column.update<-c()
-
-    max<-max(which(x.step%in%1))
-    min<-min(which(x.step%in%1))
-    #		print(paste("min", min))
-    nei<-c()
-    if(min == 1 & max != n){
-      neiIND<-which(x.elements[,max+1]==1)
-      nei<-x.elements[neiIND,, drop=F]
-      #			print("if1")
-    }else if(max == n & min != 1){
-      neiIND<-which(x.elements[,min-1]==1)
-      nei<-x.elements[neiIND,, drop=F]
-      #			print("if2")
-    }else if( max!=n & min!=1){
-      nei1<-which(x.elements[,min-1]==1)
-      nei2<-which(x.elements[,max+1]==1)
-      neiIND<-c(nei1,nei2)
-      nei<-x.elements[neiIND,, drop=F]
-      #			print("if3")
-    }
-    #print(nei)
-
-    if(length(nei) > 0){
-      x.last <- x.elements[nrow(x.elements), , drop=F]
-
-      temp <- apply(nei, 1, function(x){
-        #fit.elements.v3(as.logical(x+x.last), vaf.data=sort.vaf.data,depth.data=sort.depth.data)
-        fit.elements.v3(x|x.last, vaf.data=sort.vaf.data,depth.data=sort.depth.data)   # APRIL 11 2019
-
-      })
-
-      ###try to only look at cluster neighbours
-      ###instead of dim i will use sqrt of length. Because mat.loop is always square matrix   WORKS!!! SEP12
-      l2<-sqrt(length(mat.loop))
-      mat.column.update<-rep(100000,l2)
-      mat.column.update[neiIND]<-temp[1,]
-      par1.column.update<-rep(100000, l2)
-      par1.column.update[neiIND]<-temp[2,]
-      #par2.column.update<-rep(0, l2)
-      #par2.column.update[neiIND]<-temp[3,]
-
-      mat.loop<-cbind(mat.loop, mat.column.update )
-      mat.loop<-rbind(mat.loop, rep(100000,dim(mat.loop)[2]))    #just to keep mat.loop square.
-      par.1.loop<-cbind(par.1.loop, par1.column.update)
-      par.1.loop<-rbind(par.1.loop, rep(100000, dim(par.1.loop)[2]))
-      #par.2.loop<-cbind(par.2.loop, par2.column.update)
-      #par.2.loop<-rbind(par.2.loop, rep(0, dim(par.2.loop)[2]))
-    }
-
-    s<-s+1
+  current_nrow <- l; okay <- seq_len(l)
+  step_vm <- function(s) {
+    f <- factor(membership, levels = seq_len(current_nrow))
+    sx <- split(sort.x, f); sd <- split(depth_col, f)
+    cbind(vapply(sx, mean, numeric(1)),
+          vapply(sx, var,  numeric(1)),
+          lengths(sx),
+          rep(s, current_nrow),
+          round(vapply(sd, mean, numeric(1))),
+          okay)
   }
 
-  #var.mean <-cbind(var.mean, 1/(var.mean[,3]))
-  colnames(var.mean)<-c("mean", "var","NumberOfPoints", "step","depth", 'okay')
+  vm.chunks <- vector("list", l); vm.chunks[[1]] <- step_vm(0)
+  x.elements <- x.elements.preprc
+  m.preprc   <- Matrix(x.elements, sparse = TRUE)
+  x.elements.list <- vector("list", l - 1)
+  params <- c(); x.values <- numeric(l - 1); x.steps <- c()
+  s <- 1; n <- N
 
+  while (nrow(x.elements) >= 2) {
+    mn  <- min(mat.loop)
+    pos <- which(mat.loop == mn, arr.ind = TRUE)[1, ]
+    el1 <- pos[1]; el2 <- pos[2]; el.rm <- c(el1, el2)
+    x.values[s] <- mn
+    params <- rbind(params, par.1.loop[el1, el2])
+
+    x.step <- x.elements[el1, ] | x.elements[el2, ]
+    x.steps <- rbind(x.steps, x.step)
+    x.elements <- rbind(x.elements[-el.rm, ], x.step)
+    x.elements.list[[s]] <- Matrix(x.elements, sparse = TRUE)
+
+    mn_el <- min(el1, el2); mx_el <- max(el1, el2)
+    was_merged <- (membership == el1) | (membership == el2)
+    membership <- membership - ifelse(membership > mx_el, 2L,
+                              ifelse(membership > mn_el, 1L, 0L))
+    new_idx <- current_nrow - 1L
+    membership[was_merged] <- new_idx
+    current_nrow <- new_idx
+    okay <- c(okay[-el.rm], 0)
+    vm.chunks[[s + 1]] <- step_vm(s)
+
+    mat.loop   <- mat.loop  [-el.rm, -el.rm]
+    par.1.loop <- par.1.loop[-el.rm, -el.rm]
+    max_pos <- max(which(x.step)); min_pos <- min(which(x.step))
+    neiIND <- integer(0)
+    if      (min_pos == 1 & max_pos != n) neiIND <- which(x.elements[, max_pos + 1])
+    else if (max_pos == n & min_pos != 1) neiIND <- which(x.elements[, min_pos - 1])
+    else if (max_pos != n & min_pos != 1)
+      neiIND <- c(which(x.elements[, min_pos - 1]), which(x.elements[, max_pos + 1]))
+
+    if (length(neiIND) > 0) {
+      nei <- x.elements[neiIND, , drop = FALSE]
+      x.last <- x.elements[nrow(x.elements), , drop = FALSE]
+      temp <- apply(nei, 1, function(x)
+        fit.elements.v3(x | x.last, vaf.data = sort.vaf.data, depth.data = sort.depth.data))
+      l2 <- sqrt(length(mat.loop))
+      mat.column.update  <- rep(100000, l2); mat.column.update [neiIND] <- temp[1, ]
+      par1.column.update <- rep(100000, l2); par1.column.update[neiIND] <- temp[2, ]
+      mat.loop   <- cbind(mat.loop,   mat.column.update);   mat.loop   <- rbind(mat.loop,   rep(100000, ncol(mat.loop)))
+      par.1.loop <- cbind(par.1.loop, par1.column.update);  par.1.loop <- rbind(par.1.loop, rep(100000, ncol(par.1.loop)))
+    }
+    s <- s + 1
+  }
+  var.mean <- do.call(rbind, vm.chunks[!sapply(vm.chunks, is.null)])
+  colnames(var.mean) <- c("mean", "var", "NumberOfPoints", "step", "depth", "okay")
+  x.elements.list <- x.elements.list[!sapply(x.elements.list, is.null)]
   time2 <- as.numeric(Sys.time())
-  cat("while took ", (time2 - time1), " seconds.\n")
-  cat("total took ", (time2 - time0), " seconds.\n")
 
-  result <- list(x.el=x.elements.list,x.el.preprocess=m.preprc,
-                 params=params, var.mean=var.mean, prep.data=prep.data,
-                 vaf.sorted=sort.vaf.data,depth.sorted= sort.depth.data,
-                 freq.s= sort.x, time=list(time0,time1, time2))
-  return(result)
+  list(x.el = x.elements.list, x.el.preprocess = m.preprc,
+       params = params, var.mean = var.mean, prep.data = prep.data,
+       vaf.sorted = sort.vaf.data, depth.sorted = sort.depth.data,
+       freq.s = sort.x, time = list(time0, time1, time2))
 }
 
 

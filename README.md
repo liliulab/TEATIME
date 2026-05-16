@@ -28,10 +28,8 @@ magos <- readRDS(system.file("extdata", "MAGOS.rds", package = "TEATIME"))
 input <- list(purity = magos$purity, result = magos$results)
 depth <- round(mean(magos$results$depth.1))
 
-result <- TEATIME.run(input, beta = 0.9, depth = depth)
-print(result)
-#   name   mu      s  emergence_time   tau       p
-#   T01   17.9  0.442       10        3.12   0.406
+result <- TEATIME.run(input, input_format = "magos", beta = 0.9, depth = depth)
+
 ```
 
 ---
@@ -55,13 +53,13 @@ result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9)
 
 TEATIME runs MAGOS internally to cluster mutations before estimation.
 
-### Option 2 — MAGOS clustering result (`input_format = "magos"`, default)
+### Option 2 — MAGOS clustering result (`input_format = "magos"`)
 
 A list with elements `purity` (numeric) and `result` (data.frame from MAGOS output):
 
 ```r
 input <- list(purity = magos$purity, result = magos$results)
-result <- TEATIME.run(input, beta = 0.9, depth = depth)
+result <- TEATIME.run(input, input_format = "magos", beta = 0.9, depth = depth)
 ```
 
 For more on MAGOS, see [github.com/liliulab/magos](https://github.com/liliulab/magos).
@@ -101,7 +99,7 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `beta` | `0.9` | Cell survival rate |
 | `depth` | `NA` | Mean sequencing depth (auto-computed if `NA`) |
 | `p_thre` | `0.01` | P-value threshold for breakpoint tests |
-| `input_format` | `"magos"` | One of `"magos"`, `"vcf"`, `"raw"` |
+| `input_format` | `"vcf"` | One of `"vcf"`, `"magos"`, `"raw"` |
 | `growth_model` | `"exponential"` | Growth model name (see Extensibility) |
 | `verbose` | `FALSE` | Print step-level progress |
 | `output_folder` | `"./"` | Directory for output files |
@@ -135,7 +133,7 @@ Two files are bundled in `inst/extdata` for validation:
 ```r
 magos <- readRDS(system.file("extdata", "MAGOS.rds", package = "TEATIME"))
 input <- list(purity = magos$purity, result = magos$results)
-result <- TEATIME.run(input, beta = 0.9, depth = round(mean(magos$results$depth.1)))
+result <- TEATIME.run(input, input_format = "magos", beta = 0.9, depth = round(mean(magos$results$depth.1)))
 ```
 
 ---
@@ -161,7 +159,7 @@ The function must accept `i`, `p`, and `beta` as named arguments and return a si
 
 ## Reference
 
-Hai Chen, Jingmin Shu, Rekha Mudappathi, Elaine Li, Panwen Wang, Leif Bergsagel, Ping Yang, Zhifu Sun, Logan Zhao, Changxin Shi, Jeffrey P Townsend, Carlo Maley, Li Liu, Competing Subclones and Fitness Diversity Shape Tumor Evolution Across Cancer Types, *Bioinformatics*, 2026;, btag127, https://doi.org/10.1093/bioinformatics/btag127
+Chen H, Shu J, Mudappathi R, Li E, Wang P, Bergsagel L, Yang P, Sun Z, Zhao L, Shi C, Townsend JP, Maley C, Liu L. Competing Subclones and Fitness Diversity Shape Tumor Evolution Across Cancer Types. *Bioinformatics*. 2026 Mar 12:btag127. doi: 10.1093/bioinformatics/btag127. PMID: 41826799.
 
 ## Contributors
 
