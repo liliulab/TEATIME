@@ -651,46 +651,78 @@ TEATIME.run <- function(
     result
   }
 
-  ctx <- .step("prepare_data", prepare_data(
-    input = input, beta = beta, depth = depth,
-    input_format = input_format, growth_model = growth_model,
-    verbose = verbose, output_folder = output_folder,
-    output_prefix = output_prefix, id = id,
-    write_final = write_final, seed = seed, extra = extra,
-    save_magos = save_magos
-  ), info_fn = function(r = NULL) {
-    if (is.null(r)) return(sprintf("input_format=%s  beta=%s  depth=?", input_format, beta))
-    sprintf("depth=%d  n_mut=%d  n_clusters=%d  main_vaf=%.3f  magosp=%.3f",
-            r$depth, length(r$vafdata$vaf.1),
-            length(unique(r$vafdata$colors)),
-            mean(r$main_cluster_vaf), r$magosp)
+  # All-NA fallback writer: guarantees a result (and a .final.txt when
+  # write_final = TRUE) even if some pipeline step errors. A failed sample
+  # is reported as NA rather than crashing the caller / leaving no file.
+  .na_result <- function() {
+    fd <- data.frame(name = id, mu = NA, s = NA,
+                     emergence_time = NA, tau = NA, p = NA,
+                     stringsAsFactors = FALSE)
+    if (isTRUE(write_final)) {
+      hdr <- paste0(
+        "## name: sample ID | mu: mutation rate | s: selection coefficient | ",
+        "emergence_time: emergence time of the subclone | ",
+        "tau: subclone expansion score | p: subclonal fraction\n")
+      out_path <- file.path(output_folder, paste0(output_prefix, ".final.txt"))
+      tryCatch({
+        dir.create(dirname(out_path), showWarnings = FALSE, recursive = TRUE)
+        writeLines(hdr, con = out_path)
+        suppressWarnings(write.table(fd, file = out_path, sep = "\t",
+                                     row.names = FALSE, quote = FALSE,
+                                     append = TRUE))
+      }, error = function(e2) NULL)
+    }
+    fd
+  }
+
+  tryCatch({
+    ctx <- .step("prepare_data", prepare_data(
+      input = input, beta = beta, depth = depth,
+      input_format = input_format, growth_model = growth_model,
+      verbose = verbose, output_folder = output_folder,
+      output_prefix = output_prefix, id = id,
+      write_final = write_final, seed = seed, extra = extra,
+      save_magos = save_magos
+    ), info_fn = function(r = NULL) {
+      if (is.null(r)) return(sprintf("input_format=%s  beta=%s  depth=?", input_format, beta))
+      sprintf("depth=%d  n_mut=%d  n_clusters=%d  main_vaf=%.3f  magosp=%.3f",
+              r$depth, length(r$vafdata$vaf.1),
+              length(unique(r$vafdata$colors)),
+              mean(r$main_cluster_vaf), r$magosp)
+    })
+
+    rbest <- .step("run_rbest", run_rbest(ctx),
+      info_fn = function(r = NULL) if (!is.null(r)) sprintf("label=%s", r$label %||% "?") else NULL)
+
+    estimates <- .step("run_estimates", run_estimates(ctx, p_thre = p_thre),
+      info_fn = function(r = NULL) {
+        if (is.null(r)) return(NULL)
+        fit_n   <- if (!is.null(r$fit$all))    nrow(r$fit$all)    else 0L
+        bac_n   <- if (!is.null(r$bac$all))    nrow(r$bac$all)    else 0L
+        normal_n <- if (!is.null(r$normal$all)) nrow(r$normal$all) else 0L
+        sprintf("fit=%d rows  bac=%d rows  normal=%d rows", fit_n, bac_n, normal_n)
+      })
+
+    fitness <- .step("run_fitness", run_fitness(estimates, ctx),
+      info_fn = function(r = NULL) {
+        if (is.null(r)) return(NULL)
+        sprintf("fitmu=%s  intermu=%s  fitp=%s  backp=%s",
+                round(r$fitmu,    3), round(r$intermu,  3),
+                round(r$fitp,     4), round(r$backp,    4))
+      })
+
+    .step("post_process", post_process(fitness, rbest, ctx),
+      info_fn = function(r = NULL) {
+        if (is.null(r) || !is.data.frame(r)) return(NULL)
+        sprintf("mu=%s  s=%s  emerge=%s  tau=%s  p=%s",
+                r$mu, round(r$s, 3), r$emergence_time,
+                round(r$tau, 3), round(r$p, 4))
+      })
+  }, error = function(e) {
+    if (debug) {
+      cat(sprintf("[DEBUG] pipeline failed: %s -- returning NA result\n",
+                  conditionMessage(e)))
+    }
+    .na_result()
   })
-
-  rbest <- .step("run_rbest", run_rbest(ctx),
-    info_fn = function(r = NULL) if (!is.null(r)) sprintf("label=%s", r$label %||% "?") else NULL)
-
-  estimates <- .step("run_estimates", run_estimates(ctx, p_thre = p_thre),
-    info_fn = function(r = NULL) {
-      if (is.null(r)) return(NULL)
-      fit_n   <- if (!is.null(r$fit$all))    nrow(r$fit$all)    else 0L
-      bac_n   <- if (!is.null(r$bac$all))    nrow(r$bac$all)    else 0L
-      normal_n <- if (!is.null(r$normal$all)) nrow(r$normal$all) else 0L
-      sprintf("fit=%d rows  bac=%d rows  normal=%d rows", fit_n, bac_n, normal_n)
-    })
-
-  fitness <- .step("run_fitness", run_fitness(estimates, ctx),
-    info_fn = function(r = NULL) {
-      if (is.null(r)) return(NULL)
-      sprintf("fitmu=%s  intermu=%s  fitp=%s  backp=%s",
-              round(r$fitmu,    3), round(r$intermu,  3),
-              round(r$fitp,     4), round(r$backp,    4))
-    })
-
-  .step("post_process", post_process(fitness, rbest, ctx),
-    info_fn = function(r = NULL) {
-      if (is.null(r) || !is.data.frame(r)) return(NULL)
-      sprintf("mu=%s  s=%s  emerge=%s  tau=%s  p=%s",
-              r$mu, round(r$s, 3), r$emergence_time,
-              round(r$tau, 3), round(r$p, 4))
-    })
 }
