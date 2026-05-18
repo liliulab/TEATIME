@@ -1639,6 +1639,9 @@ Run TEATIME</a></li>
 </ul>
 </div>
 
+<pre class="r"><code>library(TEATIME)
+cat(&quot;TEATIME version:&quot;, as.character(packageVersion(&quot;TEATIME&quot;)), &quot;\n&quot;)</code></pre>
+<pre><code>## TEATIME version: 2.3.0</code></pre>
 <p>TEATIME is a framework for estimating evolutionary parameters using
 single-timepoint WES or WGS data. In this workflow, we demonstrate the
 complete process using an example from MOBSTER dataset, including data
@@ -1718,7 +1721,7 @@ input.data &lt;- data[, .(REF = t_ref_count, ALT = t_alt_count)]
 
 # Run MAGOS and save for reproducibility
 run &lt;- mag.single.run(input.data = input.data, fold = TRUE)</code></pre>
-<pre><code>## [MAGOS-fast]  N=1008  l=396  init=0.1s  merge=5.4s  total=5.5s</code></pre>
+<pre><code>## [MAGOS-fast]  N=1008  l=396  init=0.0s  merge=1.7s  total=1.7s</code></pre>
 <pre class="r"><code>saveRDS(run, &quot;MAGOS.rds&quot;)</code></pre>
 <p>Load the pre-computed result that ships with the package and inspect
 clusters:</p>
@@ -1745,6 +1748,11 @@ MAGOS clustering result
 <p>The simplest path: pass a <code>data.frame</code> with
 <code>REF</code>, <code>ALT</code>, and per-mutation <code>CN</code>.
 TEATIME runs the internal fast MAGOS, then estimates parameters.</p>
+<p>For this demo we enable <code>fast_version = TRUE</code>, which is
+~3× speed-up. In fast mode the selection coefficient <code>s</code> is a
+stochastic approximation. To disable it and get a potentially more
+precise <code>s</code>, set <code>fast_version = FALSE</code> (default).
+The trade-off is not guaranteed;</p>
 <pre class="r"><code>samplename    &lt;- &quot;test&quot;
 output.folder &lt;- file.path(&quot;./&quot;)
 dir.create(output.folder, showWarnings = FALSE)
@@ -1759,12 +1767,13 @@ result.vcf &lt;- TEATIME.run(
   output_prefix = &quot;TEATIME&quot;,
   id            = samplename,
   seed          = 123,
-  # save_magos = TRUE        # uncomment to persist the intermediate MAGOS rds
+  fast_version  = TRUE       # demo speed; set FALSE for the most accurate s
+  # save_magos  = TRUE       # uncomment to persist the intermediate MAGOS rds
 )</code></pre>
-<pre><code>## [MAGOS-fast]  N=1008  l=396  init=0.3s  merge=4.8s  total=5.1s</code></pre>
+<pre><code>## [MAGOS-fast]  N=1008  l=396  init=0.1s  merge=1.6s  total=1.7s</code></pre>
 <pre class="r"><code>print(result.vcf)</code></pre>
 <pre><code>##   name   mu         s emergence_time      tau         p
-## 1 test 17.9 0.4421549             10 3.124002 0.4062049</code></pre>
+## 1 test 17.9 0.4089598             10 3.296407 0.4062049</code></pre>
 <p>The TEATIME output file contains several key inferred parameters: μ
 mutation rate, s selection coefficient, p subclonal fraction,
 emergence_time emergence time of the subclone,tau subclone expansion
@@ -1831,7 +1840,7 @@ p_error  &lt;- (result.vcf$p  - clone1_fraction) / clone1_fraction
 cat(sprintf(&quot;Relative error of mutation rate: %.2f%%\n&quot;, mu_error * 100))</code></pre>
 <pre><code>## Relative error of mutation rate: 11.87%</code></pre>
 <pre class="r"><code>cat(sprintf(&quot;Relative error of fitness:       %.2f%%\n&quot;, s_error  * 100))</code></pre>
-<pre><code>## Relative error of fitness:       -11.57%</code></pre>
+<pre><code>## Relative error of fitness:       -18.21%</code></pre>
 <pre class="r"><code>cat(sprintf(&quot;Relative error of frequency:     %.2f%%\n&quot;, p_error  * 100))</code></pre>
 <pre><code>## Relative error of frequency:     -8.30%</code></pre>
 <p>When mutations in diploid regions are too few to support analysis,

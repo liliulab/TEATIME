@@ -15,13 +15,10 @@ compare_real_simu_peak <- function(
   right_most_vaf = NA_real_,
   mu_small = FALSE,
   bac = FALSE,
-  n_wilcox = 10,
-  tol = 1e-4
+  n_wilcox = 50,
+  tol = NULL
 ) {
   depth <- ctx$depth
-  mc_cores <- getOption("teatime.mc.cores", 1L)
-  mc_cores <- suppressWarnings(as.integer(mc_cores))
-  if (is.na(mc_cores) || mc_cores < 1L) mc_cores <- 1L
   row_indices <- seq_len(nrow(peakdata))
 
   compute_row <- function(i) {
@@ -57,12 +54,7 @@ compare_real_simu_peak <- function(
     c(mean(p_values), ll, compute_AIC(ll, length(vaf_list)), compute_BIC(ll, length(vaf_list), length(data)))
   }
 
-  if (.Platform$OS.type == "unix" && length(row_indices) > 1 && mc_cores > 1L) {
-    rows <- parallel::mclapply(row_indices, compute_row, mc.cores = min(length(row_indices), mc_cores))
-    t(do.call(cbind, rows))
-  } else {
-    t(vapply(row_indices, compute_row, numeric(4)))
-  }
+  t(vapply(row_indices, compute_row, numeric(4)))
 }
 
 calculate_mu <- function(data, ctx) {
@@ -164,38 +156,42 @@ slope_method <- function(p, vaf_set, ctx, p_thre, start_div = 1, end_div = NA, n
     if (mu_est <= 3) {
       return(NULL)
     }
-    result_vector <- vaf_at_div(seq_len(cell_div_value), p, ctx)
-    df <- beta_reassign(.vaf_prob_df(vaf_set, result_vector, ctx$depth))
-    df <- df[!duplicated(df), , drop = FALSE]
-    mulist <- c()
-    plist <- c()
-    mean_list <- NA_real_
-    for (try_idx in 1:3) {
-      mu_from_real <- get_slope(df, p, result_vector, ctx, num_decimal)
-      mu_from_simu <- slope_simu(cell_div_value, mu_est, p, ctx, num_decimal)
-      mean_list <- mean(mu_from_simu)
-      sd_list <- max(stats::sd(mu_from_simu), 1.5)
-      z_score <- (mu_from_real - mean_list) / sd_list
-      mulist <- c(mulist, mu_from_real)
-      plist <- c(plist, abs(z_score))
-    }
-    best <- which.min(plist)
-    data.frame(
-      mu = mu_est,
-      mu_real = mulist[best],
-      mu_simu = mean_list,
-      cell.div = cell_div_value,
-      z_score = plist[best],
-      p = p
-    )
+    tryCatch({
+      result_vector <- vaf_at_div(seq_len(cell_div_value), p, ctx)
+      df <- beta_reassign(.vaf_prob_df(vaf_set, result_vector, ctx$depth))
+      df <- df[!duplicated(df), , drop = FALSE]
+      mulist <- c()
+      plist <- c()
+      mean_list <- NA_real_
+      for (try_idx in 1:3) {
+        mu_from_real <- get_slope(df, p, result_vector, ctx, num_decimal)
+        mu_from_simu <- slope_simu(cell_div_value, mu_est, p, ctx, num_decimal)
+        mean_list <- mean(mu_from_simu)
+        sd_list <- max(stats::sd(mu_from_simu), 1.5)
+        z_score <- (mu_from_real - mean_list) / sd_list
+        mulist <- c(mulist, mu_from_real)
+        plist <- c(plist, abs(z_score))
+      }
+      best <- which.min(plist)
+      data.frame(
+        mu = mu_est,
+        mu_real = mulist[best],
+        mu_simu = mean_list,
+        cell.div = cell_div_value,
+        z_score = plist[best],
+        p = p
+      )
+    }, error = function(e) NULL)
   }, as.list(div_list))
 }
 
 peak_method <- function(p, vaf_set, ctx, p_thre, celldivlist = NULL, num_decimal = 3, ...) {
   dots <- list(...)
-  n_sim_peak <- dots$n_sim_peak %||% 10000
-  tol_peak <- dots$tol_peak %||% 1e-4
-  n_wilcox <- dots$n_wilcox %||% 10
+  n_sim_peak <- dots$n_sim_peak %||% 100000
+  tol_peak <- dots$tol_peak %||% 0
+  n_wilcox <- dots$n_wilcox %||% 50
+  collect_data_check <- dots$collect_data_check
+  collect <- is.null(collect_data_check)
   min_sample_size <- 6
   right_most_vaf <- vaf_at_div(1, p, ctx)
   right_df <- data.frame(vaf = vaf_set)
@@ -204,7 +200,9 @@ peak_method <- function(p, vaf_set, ctx, p_thre, celldivlist = NULL, num_decimal
   right_df$score <- right_df$prob / max(right_df$prob) - right_df$abs_diff / max(right_df$abs_diff)
   right_df <- right_df[order(-right_df$score), , drop = FALSE]
 
-  if (is.null(celldivlist)) {
+  if (!collect) {
+    collect.data <- collect_data_check
+  } else if (is.null(celldivlist)) {
     collect.data <- collect_rows(function(mu) {
       right_result <- peak_test(right_df, min_sample_size, right_most_vaf, mu, ctx$depth, num_decimal, n_sim = n_sim_peak, tol = tol_peak)
       data.frame(
@@ -271,7 +269,7 @@ peak_method <- function(p, vaf_set, ctx, p_thre, celldivlist = NULL, num_decimal
       collect.data <- temp_keep
     }
     collect.data$right_rank <- rank(collect.data$right.cd)
-    top_n <- floor((if (is.null(celldivlist)) if (nrow(collect.data) > 4) 0.25 else if (nrow(collect.data) > 2) 0.5 else 1 else if (nrow(collect.data) > 2) 0.5 else 1) * nrow(collect.data))
+    top_n <- floor((if (collect) (if (nrow(collect.data) > 4) 0.25 else if (nrow(collect.data) > 2) 0.5 else 1) else (if (nrow(collect.data) > 2) 0.5 else 1)) * nrow(collect.data))
     top_pick <- utils::head(collect.data[order(collect.data$right_rank), , drop = FALSE], top_n)
   } else {
     collect.data <- temp_keep[temp_keep$left.p > p_thre | temp_keep$right.p > p_thre, , drop = FALSE]
@@ -310,19 +308,22 @@ peak_method <- function(p, vaf_set, ctx, p_thre, celldivlist = NULL, num_decimal
 }
 
 simu_slope <- function(vaf_set, p, ctx) {
-  g1 <- data.frame(vaf = vaf_set, count = 1)
-  g1$vaf_chr <- format(g1$vaf, nsmall = 3)
-  g1 <- g1[order(-g1$vaf, -g1$count), , drop = FALSE]
-  g1$cumsum <- cumsum(g1$count)
-  g1 <- g1[!duplicated(g1$vaf_chr), , drop = FALSE]
-  g1$lnf <- 2 * as.numeric(g1$vaf_chr) - p
-  g1 <- g1[g1$lnf > 0, , drop = FALSE]
-  g1$x <- log(g1$lnf)
-  remove_n <- round(nrow(g1) * 0.05)
-  if (nrow(g1) > 2 * remove_n + 5) {
-    g1 <- g1[-c(seq_len(remove_n), seq.int(nrow(g1) - remove_n + 1, nrow(g1))), , drop = FALSE]
+  G1.sub <- data.frame(vaf = vaf_set, stringsAsFactors = FALSE)
+  G1.sub$count <- 1
+  G1.sub$vaf <- format(G1.sub$vaf, nsmall = 3)
+  G1.sub <- G1.sub[order(G1.sub$vaf, G1.sub$count, decreasing = TRUE), , drop = FALSE]
+  G1.sub$cumsum <- cumsum(G1.sub$count)
+  G1.sub <- G1.sub[!duplicated(G1.sub$vaf, fromLast = TRUE), , drop = FALSE]
+  G1.sub$vaf <- as.numeric(G1.sub$vaf)
+  G1.sub$lnf <- 2 * G1.sub$vaf - p
+  G1 <- G1.sub[G1.sub$lnf > 0, , drop = FALSE]
+  G1$x <- log(G1$lnf)
+  num_rows_to_remove <- round(nrow(G1) * 0.05)
+  rows_to_remove <- c(1:num_rows_to_remove, (nrow(G1) - num_rows_to_remove + 1):nrow(G1))
+  if (nrow(G1[-rows_to_remove, , drop = FALSE]) > 5) {
+    G1 <- G1[-rows_to_remove, , drop = FALSE]
   }
-  calculate_mu(g1[, c("cumsum", "x"), drop = FALSE], ctx)
+  calculate_mu(G1[, c("cumsum", "x"), drop = FALSE], ctx)
 }
 
 mu_find_small <- function(vaf_set, p, ctx) {
@@ -351,7 +352,7 @@ mu_find_small <- function(vaf_set, p, ctx) {
 
 mu_estimation_small <- function(data, p, ctx, p_thre, num_decimal = 3, ...) {
   dots <- list(...)
-  n_wilcox <- dots$n_wilcox %||% 10
+  n_wilcox <- dots$n_wilcox %||% 50
   vaf_set <- ctx$main_cluster_vaf
   result_vector <- c(0.5, p / 2, vaf_at_div(seq_len(20), p, ctx))
   df <- beta_reassign(.vaf_prob_df(vaf_set, result_vector, ctx$depth))
@@ -413,39 +414,50 @@ calculate_border_vaf_fit <- function(ctx) {
 
 calculate_left_right_most_vaf_fit <- function(border_vaf, ctx, num_decimal = 3) {
   main_vaf <- ctx$main_cluster_vaf
+  depth <- ctx$depth
+  beta <- ctx$beta
+  prob_df <- function(x, s1, s2) {
+    probs <- sapply(seq_along(s1), function(j) stats::dbeta(x, s1[j], s2[j]))
+    d <- data.frame(probs, vaf = x, check.names = FALSE)
+    names(d)[seq_along(s1)] <- paste0("prob.", seq_along(s1))
+    d
+  }
   m <- RBesT::automixfit(main_vaf, type = "beta", Nc = 2:10, thresh = 0, k = 6, Ninit = min(50, round(length(main_vaf) / 5)), Niter.max = 10000)
   a <- m["a", ]
   b <- m["b", ]
   mean_ab <- a / (a + b)
   approx_vaf <- min(mean_ab)
-  idx <- which.min(mean_ab)
+  approx_vaf_index <- which.min(mean_ab)
   left_most_vaf <- round(approx_vaf, num_decimal)
-  df <- beta_reassign(.vaf_prob_df(main_vaf, c(0.5, approx_vaf), ctx$depth))
+  inita <- c(0.5 * depth, a[approx_vaf_index])
+  initb <- c(0.5 * depth, b[approx_vaf_index])
+  df <- beta_reassign(prob_df(main_vaf, inita, initb))
   main_vaf_update <- df[df$cluster < 2, "vaf"]
   right_most_vaf <- approx_vaf
   right_save <- approx_vaf
   iteration <- 1
-  while (iteration <= 100) {
+  while (iteration <= 10000) {
     m <- RBesT::automixfit(main_vaf_update, type = "beta", Nc = 1:10, thresh = 0, k = 6, Ninit = min(50, round(length(main_vaf_update) / 5)), Niter.max = 10000)
     updatea <- m["a", ]
     updateb <- m["b", ]
     mean_ab <- updatea / (updatea + updateb)
     approx_vaf <- min(mean_ab)
     if (approx_vaf >= 0.5 || length(mean_ab) == 1) break
-    df <- beta_reassign(.vaf_prob_df(main_vaf_update, c(0.5, approx_vaf), ctx$depth))
+    approx_vaf_index <- which.min(mean_ab)
+    currenta <- c(0.5 * depth, updatea[approx_vaf_index])
+    currentb <- c(0.5 * depth, updateb[approx_vaf_index])
+    df <- beta_reassign(prob_df(main_vaf_update, currenta, currentb))
     main_vaf_update <- df[df$cluster < 2, "vaf"]
     if (approx_vaf < 0.5) {
-      prev_right <- right_most_vaf
       right_most_vaf <- approx_vaf
       if (approx_vaf > right_save) right_save <- approx_vaf
-      if (abs(right_most_vaf - prev_right) < 1e-4) break
     }
     iteration <- iteration + 1
   }
-  right_th_vaf <- left_most_vaf + (0.5 - left_most_vaf) / exp(log(2) * ctx$beta)
+  right_th_vaf <- left_most_vaf + (0.5 - left_most_vaf) / exp(log(2) * beta)
   right_most_vaf <- round(max(right_most_vaf, border_vaf, right_th_vaf, right_save), num_decimal)
   list(
-    p = (right_most_vaf * 2 * exp(log(2) * ctx$beta) - 1) / (exp(log(2) * ctx$beta) - 1),
+    p = (right_most_vaf * 2 * exp(log(2) * beta) - 1) / (exp(log(2) * beta) - 1),
     start.div = if (right_most_vaf == left_most_vaf) 1 else 2
   )
 }
@@ -549,7 +561,7 @@ iterate_p_optimize <- function(clear, give.vaf, upper_clonal_vaf, clonal.vaf.lef
 
   suppose_right_vaf <- vaf_at_div(1, p, ctx)
   first_vaf_list <- c()
-  if (!clear && length(clonal.vaf.left) > 0) {
+  if (!clear) {
     a <- if (suppose_right_vaf > upper_clonal_vaf) {
       c(ctx$depth * 0.5, ctx$depth * suppose_right_vaf)
     } else {
@@ -564,12 +576,6 @@ iterate_p_optimize <- function(clear, give.vaf, upper_clonal_vaf, clonal.vaf.lef
   }
 
   vaf_set <- c(first_vaf_list, second.vaf[second.vaf > give.vaf])
-  if (length(vaf_set) == 0L) {
-    return(data.frame(
-      cell.div = NA_real_, mu = NA_real_, loglike = NA_real_, bic = NA_real_,
-      aic = NA_real_, p = p, z_score = NA_real_, reliable = 0
-    ))
-  }
   result_vector <- vaf_at_div(seq_len(20), p, ctx)
   df <- beta_reassign(.vaf_prob_df(vaf_set, result_vector, ctx$depth))
   df <- df[!duplicated(df), , drop = FALSE]
@@ -578,39 +584,21 @@ iterate_p_optimize <- function(clear, give.vaf, upper_clonal_vaf, clonal.vaf.lef
     dplyr::group_by(cluster) %>%
     dplyr::summarise(count = sum(freq), .groups = "drop")
   df_count_freq <- as.data.frame(df_count_freq)
-  if (nrow(df_count_freq) == 0L) {
-    return(data.frame(
-      cell.div = NA_real_, mu = NA_real_, loglike = NA_real_, bic = NA_real_,
-      aic = NA_real_, p = p, z_score = NA_real_, reliable = 0
-    ))
-  }
   if (min(df_count_freq$cluster) > 1) {
     df_count_freq <- rbind(data.frame(cluster = 1, count = 0), df_count_freq)
     df_count_freq <- df_count_freq[order(df_count_freq$cluster), , drop = FALSE]
   }
-  if (nrow(df_count_freq) < 2L) {
-    return(data.frame(
-      cell.div = NA_real_, mu = NA_real_, loglike = NA_real_, bic = NA_real_,
-      aic = NA_real_, p = p, z_score = NA_real_, reliable = 0
-    ))
-  }
 
-  max_mu <- as.numeric(df_count_freq$count[1] + df_count_freq$count[2])
-  if (nrow(df_count_freq) > 6 && isTRUE(df_count_freq$count[2] / df_count_freq$count[3] <= 4)) {
+  max_mu <- df_count_freq[1, ]$count + df_count_freq[2, ]$count
+  if (nrow(df_count_freq) > 6 & df_count_freq[2, "count"] / df_count_freq[3, "count"] <= 4) {
     df_count_freq <- df_count_freq[2:3, , drop = FALSE]
   } else {
     df_count_freq <- df_count_freq[2, , drop = FALSE]
   }
-  min_mu <- max(3, min(as.numeric(df_count_freq$count) / 4))
+  min_mu <- max(3, min(df_count_freq$count / 4))
   total_count_temp <- length(vaf_set)
   start.div <- round(total_count_temp / max_mu)
   end.div <- round(total_count_temp / min_mu)
-  if (!is.finite(start.div) || !is.finite(end.div) || is.na(start.div) || is.na(end.div) || start.div > end.div) {
-    return(data.frame(
-      cell.div = NA_real_, mu = NA_real_, loglike = NA_real_, bic = NA_real_,
-      aic = NA_real_, p = p, z_score = NA_real_, reliable = 0
-    ))
-  }
 
   collect.data <- slope_method(p, vaf_set, ctx, p_thre, start_div = start.div, end_div = end.div, num_decimal = num_decimal)
   collect.data <- collect.data[collect.data$mu_real > 3, , drop = FALSE]
@@ -646,16 +634,10 @@ iterate_p_optimize <- function(clear, give.vaf, upper_clonal_vaf, clonal.vaf.lef
     overlap.pick <- if (nrow(over12) > 0) over12 else NULL
 
     if (nrow(df_count_freq) > 1) {
-      max_mu <- as.numeric(df_count_freq$count[2])
-      min_mu <- if (any(df_count_freq$cluster == 3)) max(1, as.numeric(df_count_freq$count[df_count_freq$cluster == 3]) / 2) else 1
+      max_mu <- df_count_freq[df_count_freq$cluster == df_count_freq[2, ]$cluster, ]$count
+      min_mu <- max(1, df_count_freq[df_count_freq$cluster == 3, ]$count / 2)
       start.div <- round(total_count_temp / max_mu)
       end.div <- round(total_count_temp / min_mu)
-      if (!is.finite(start.div) || !is.finite(end.div) || is.na(start.div) || is.na(end.div) || start.div > end.div) {
-        return(data.frame(
-          cell.div = NA_real_, mu = NA_real_, loglike = NA_real_, bic = NA_real_,
-          aic = NA_real_, p = p, z_score = NA_real_, reliable = 0
-        ))
-      }
       first_div_vaf_data <- df[df$cluster == 3, , drop = FALSE]
       sec.div.vaf <- vaf_at_div(3, p, ctx)
       first_div_vaf_data$abs_diff <- abs(first_div_vaf_data$vaf - sec.div.vaf)
@@ -780,8 +762,15 @@ run_bac <- function(ctx, p_thre) {
   right_most.vaf <- max(mean.a.b)
   right_vaf_index <- which.max(mean.a.b)
   keep.right.vaf <- right_most.vaf
-  df <- beta_reassign(.vaf_prob_df(second.vaf, mean.a.b, ctx$depth))
-  second.update.vaf <- if (length(mean.a.b) > 1) df[df$cluster == right_vaf_index, "vaf"] else df$vaf
+  probs <- sapply(seq_along(a), function(i) stats::dbeta(second.vaf, a[i], b[i]))
+  df <- data.frame(probs, vaf = second.vaf, check.names = FALSE)
+  names(df)[seq_along(a)] <- paste0("prob.", seq_along(a))
+  if (length(mean.a.b) > 1) {
+    df <- beta_reassign(df)
+    second.update.vaf <- df[df$cluster == right_vaf_index, "vaf"]
+  } else {
+    second.update.vaf <- df$vaf
+  }
 
   while (length(mean.a.b) > 1) {
     possible_error <- tryCatch({
@@ -796,15 +785,17 @@ run_bac <- function(ctx, p_thre) {
     right_most.vaf <- max(mean.a.b)
     if (length(mean.a.b) < 2) break
     right_vaf_index <- which.max(mean.a.b)
-    df <- beta_reassign(.vaf_prob_df(second.update.vaf, mean.a.b, ctx$depth))
+    probs <- sapply(seq_along(a), function(i) stats::dbeta(second.update.vaf, a[i], b[i]))
+    df <- data.frame(probs, vaf = second.update.vaf, check.names = FALSE)
+    names(df)[seq_along(a)] <- paste0("prob.", seq_along(a))
+    df <- beta_reassign(df)
     second.update.vaf <- df[df$cluster == right_vaf_index, "vaf"]
     if (length(second.update.vaf) == 0 || length(unique(second.update.vaf)) == 1) break
   }
 
   right_most.vaf <- max(right_most.vaf, keep.right.vaf)
   p <- (right_most.vaf * 2 * exp(log(2) * ctx$beta) - 1) / (exp(log(2) * ctx$beta) - 1)
-  p <- ifelse(p < 0, 1 - 2 * exp(log(2) * ctx$beta) * right_most.vaf, p)
-  p <- ifelse(p < 0, 0.01, p)
+  if (p < 0) stop("bac: non-physical p < 0")
 
   righta <- c(0.5, right_most.vaf)
   df <- beta_reassign(.vaf_prob_df(main.vaf, righta, ctx$depth))
@@ -860,7 +851,10 @@ run_normal <- function(ctx, p_thre) {
   mean.a.b <- a / (a + b)
   upper_clonal_vaf <- min(mean.a.b)
   approx_vaf_index <- which.min(mean.a.b)
-  df <- beta_reassign(.vaf_prob_df(clonal.vaf, mean.a.b, ctx$depth))
+  probs <- sapply(seq_along(a), function(i) stats::dbeta(clonal.vaf, a[i], b[i]))
+  df <- data.frame(probs, vaf = clonal.vaf, check.names = FALSE)
+  names(df)[seq_along(a)] <- paste0("prob.", seq_along(a))
+  df <- beta_reassign(df)
   clonal.vaf.left <- df[df$cluster == approx_vaf_index, "vaf"]
   second.try <- nrow(vafdata.summary.filter) > 1
   if (!second.try) {
@@ -920,37 +914,44 @@ run_estimates <- function(ctx, p_thre = 0.01) {
   estimator_names <- list_estimators()
   preferred_order <- c("fit", "bac", "normal")
   estimator_names <- c(preferred_order[preferred_order %in% estimator_names], setdiff(estimator_names, preferred_order))
-  mc_cores <- getOption("teatime.mc.cores", 1L)
-  mc_cores <- suppressWarnings(as.integer(mc_cores))
-  if (is.na(mc_cores) || mc_cores < 1L) {
-    mc_cores <- 1L
+  sample_name <- ctx$id
+
+  # Two modes. DEFAULT (ctx$fast_version FALSE): SEQUENTIAL in v1
+  # Run.para.estimate.maincluster order (estimator-outer fit,bac,normal /
+  # try-inner 1:3) in one continuous RNG stream -> seeded run faithful to
+  # v1. fast_version TRUE: dispatch the 9 independent units with mclapply
+  # (each fork its own RNG) -> ~2-3x faster, results in v1's distribution
+  # but NOT bit-identical (seeded approximation).
+  jobs <- expand.grid(try_idx = 1:3, estimator = estimator_names,
+                      KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+  n_jobs <- nrow(jobs)
+  run_one <- function(k) {
+    estimator_fn <- get_estimator(jobs$estimator[k])
+    res <- tryCatch(.ok(estimator_fn(ctx = ctx, p_thre = p_thre)), error = .err)
+    if (res$status == "ok") res$value else NULL
   }
-  worker <- function(estimator_name) {
-    estimator_fn <- get_estimator(estimator_name)
-    sample_name <- ctx$id
+  if (isTRUE(ctx$fast_version) && .Platform$OS.type == "unix" && n_jobs > 1L) {
+    mc <- getOption("teatime.mc.cores", max(1L, parallel::detectCores(logical = TRUE) - 1L))
+    mc <- suppressWarnings(as.integer(mc))
+    if (is.na(mc) || mc < 1L) mc <- 1L
+    job_out <- parallel::mclapply(seq_len(n_jobs), run_one,
+                                  mc.cores = min(n_jobs, mc), mc.set.seed = TRUE)
+  } else {
+    job_out <- vector("list", n_jobs)
+    for (k in seq_len(n_jobs)) job_out[[k]] <- run_one(k)
+  }
+
+  # Per-estimator aggregation: identical to the original sequential worker
+  # body, fed the 3 try results in try order (1,2,3).
+  aggregate_est <- function(estimator_name) {
     all_data <- NULL
     mu_list <- c()
     up_list <- c()
     p_list <- c()
-    use_cache <- !is.null(ctx$seed) && !is.na(ctx$seed)
-    est_cache <- NULL
-
     for (try_idx in 1:3) {
-      t_est <- proc.time()
-      if (use_cache && !is.null(est_cache)) {
-        res <- .ok(est_cache)
-      } else {
-        res <- tryCatch(.ok(estimator_fn(ctx = ctx, p_thre = p_thre)), error = .err)
-      }
-      if (res$status != "ok") {
-        .log(ctx, "EST", sprintf("%s try %d failed: %s", estimator_name, try_idx, res$message), timer = t_est)
-        next
-      }
-      .log(ctx, "EST", sprintf("%s try %d", estimator_name, try_idx), timer = t_est)
-      case_result <- res$value
-      if (use_cache && is.null(est_cache)) {
-        est_cache <- case_result
-      }
+      k <- which(jobs$estimator == estimator_name & jobs$try_idx == try_idx)
+      case_result <- job_out[[k]]
+      if (is.null(case_result)) next
       case_all <- case_result$all
       if (!is.null(case_all) && nrow(case_all) > 0) {
         if (identical(estimator_name, "normal")) {
@@ -961,8 +962,6 @@ run_estimates <- function(ctx, p_thre = 0.01) {
         case_all$try <- try_idx
         case_all$name <- sample_name
         all_data <- if (is.null(all_data)) case_all else rbind(all_data, case_all)
-      }
-      if (!is.null(case_all) && nrow(case_all) > 0) {
         if (identical(estimator_name, "fit")) {
           filtered <- filter_mu_estimate(case_all)
           mu_list <- c(mu_list, filtered$mu)
@@ -978,7 +977,6 @@ run_estimates <- function(ctx, p_thre = 0.01) {
         }
       }
     }
-
     select_df <- data.frame(
       mu = ifelse(length(mu_list) > 0, max(mu_list), NA),
       up = ifelse(identical(estimator_name, "bac"), length(ctx$second_cluster_vaf$bac) / 3, ifelse(length(up_list) > 0, max(up_list), NA)),
@@ -991,11 +989,7 @@ run_estimates <- function(ctx, p_thre = 0.01) {
     list(select = select_df, all = all_data)
   }
 
-  if (.Platform$OS.type == "unix" && length(estimator_names) > 1 && mc_cores > 1L) {
-    results <- parallel::mclapply(estimator_names, worker, mc.cores = min(length(estimator_names), mc_cores))
-  } else {
-    results <- lapply(estimator_names, worker)
-  }
+  results <- lapply(estimator_names, aggregate_est)
   stats::setNames(results, estimator_names)
 }
 
@@ -1013,19 +1007,18 @@ keep_longest_consecutive_rows <- function(df) {
 pick_s <- function(df) {
   df$bicrank <- rank(df$bic)
   df$score <- df$vaf
-  max_start <- max(df$start, na.rm = TRUE)
-  if (is.finite(max_start) && max_start > 1) {
+  if (max(df$start) > 1) {
     df <- keep_longest_consecutive_rows(df)
   }
 
   pickdata <- df[which(df$bic == min(df$bic)), , drop = FALSE]
-  if (is.finite(max_start) && max_start >= 1) {
-    data_pick_sub <- df
-    data_pick_sub$truescore <- 0:(nrow(data_pick_sub) - 1)
-    valid_rows <- which(data_pick_sub$truescore <= data_pick_sub$start & data_pick_sub$start > 0)
+  if (max(df$start) >= 1) {
+    data.pick.sub <- df
+    data.pick.sub$truescore <- 0:(nrow(data.pick.sub) - 1)
+    valid_rows <- which(data.pick.sub$truescore <= data.pick.sub$start & data.pick.sub$start > 0)
     if (length(valid_rows) > 0) {
-      data_pick_sub <- data_pick_sub[valid_rows, , drop = FALSE]
-      pickdata <- df[which(df$bic == min(data_pick_sub$bic)), , drop = FALSE]
+      data.pick.sub <- data.pick.sub[valid_rows, , drop = FALSE]
+      pickdata <- df[which(df$bic == min(data.pick.sub$bic)), , drop = FALSE]
     }
   }
   pickdata
@@ -1046,10 +1039,7 @@ generate_sequence <- function(n, s, set_max = FALSE, set_max_num = 0) {
 }
 
 s_dataframe_update <- function(cell.list, p, vaf.t1, vaf_set, min.s.detect, ctx, evaluate = FALSE, simulation = FALSE) {
-  cell.list <- as.numeric(cell.list)
-  cell.list <- cell.list[is.finite(cell.list) & cell.list > 0]
-  result_vector <- if (length(cell.list) == 0L) numeric(0) else
-    sapply(cell.list, function(i) p / (2 * exp(log(2) * ctx$beta * i)))
+  result_vector <- sapply(cell.list, function(i) p / (2 * exp(log(2) * ctx$beta * i)))
   mix_check <- sapply(result_vector, function(i) ifelse(log((1 - p) / 2 / i) / (log(2) * ctx$beta) > 0, 1, 0))
   cluster_idx <- seq_along(mix_check)
   named_mix_vec <- stats::setNames(mix_check, cluster_idx)
@@ -1067,10 +1057,11 @@ s_dataframe_update <- function(cell.list, p, vaf.t1, vaf_set, min.s.detect, ctx,
   df <- df[df$cluster > 1, , drop = FALSE]
 
   sample_or_not <- function(data, cluster_id, fraction, mix_vec) {
-    key <- as.character(cluster_id - 1)
-    val <- mix_vec[key]
-    if (length(val) == 0L || is.na(val)) return(data)
-    if (val == 1) dplyr::sample_frac(data, size = fraction) else data
+    if (mix_vec[cluster_id - 1] == 1) {
+      dplyr::sample_frac(data, size = fraction)
+    } else {
+      data
+    }
   }
 
   sampled_df <- df %>%
@@ -1132,21 +1123,16 @@ s_update_process <- function(give_n, cluster.result, vaf_set, min.s.detect, vaf.
   s <- cluster.result$new_s[which(cluster.result$cluster == give_n)]
   i <- 1
   while (i <= 100) {
+    max_n <- give_n + 2
     if (give_n > 1) {
       cell.list <- generate_sequence(give_n, s)
     } else {
-      cell.list <- (1:(give_n + 2)) * (1 + s)
+      cell.list <- (1:max_n) * (1 + s)
     }
-
     cluster.result <- s_dataframe_update(cell.list, p, vaf.t1, vaf_set, min.s.detect, ctx)
     update_s <- cluster.result$new_s[which(cluster.result$cluster == give_n)]
-    if (length(update_s) == 0 || is.na(update_s)) {
-      break
-    }
     s <- update_s
-    if (abs(update_s - s) < p_thre) {
-      break
-    }
+    if (abs(update_s - s) < p_thre) break
     i <- i + 1
   }
   update_s
@@ -1251,7 +1237,6 @@ simulate_peak <- function(vaf_list, cell_list, vaf_set, ctx) {
 }
 
 simulate_ratio_peak <- function(p, s, ctx) {
-  if (length(s) == 0L || !is.finite(s)) return(c(NA_real_, NA_real_))
   result <- ctx$vafdata
   vaf.t1 <- p / 2
   give_n <- floor(1 + s)
@@ -1264,11 +1249,10 @@ simulate_ratio_peak <- function(p, s, ctx) {
   result_vector <- sapply(cell.list, function(i) p / (2 * exp(log(2) * ctx$beta * i)))
   cluster.result <- s_dataframe_update(cell.list = cell.list, p = p, vaf.t1 = vaf.t1, vaf_set = vaf_set, min.s.detect = NA, ctx = ctx, evaluate = FALSE, simulation = TRUE)
   vaf_list <- c(vaf.t1, result_vector)
-  cell_scale <- c(1, exp(log(2) * ctx$beta * cell.list))
-  simu_ratio <- simulate_peak(vaf_list, cell_scale, vaf_set, ctx)
-  cluster_count <- as.numeric(cluster.result[cluster.result$cluster == 2, "count", drop = TRUE])
-  mu_range <- as.numeric(cluster_count / simu_ratio / exp(log(2) * ctx$beta * cell.list[1]))
-  sort(mu_range)
+  cell_list <- c(1, exp(log(2) * ctx$beta * cell.list))
+  simu_ratio <- simulate_peak(vaf_list, cell_list, vaf_set, ctx)
+  mu.range <- cluster.result[cluster.result$cluster == 2, ]$count / simu_ratio / exp(log(2) * ctx$beta * cell.list[1])
+  mu.range
 }
 
 get_s <- function(p, ctx, p_thre = 1e-6) {
@@ -1289,9 +1273,7 @@ get_s <- function(p, ctx, p_thre = 1e-6) {
     svalue.list <- sapply(check_div, function(give_n) {
       s_update_process(give_n, cluster.result, vaf_set, min.s.detect, vaf.t1, p, ctx, p_thre)
     })
-    svalue.list <- as.numeric(unlist(svalue.list))
-    svalue.list <- svalue.list[is.finite(svalue.list)]
-    if (length(svalue.list) > 0 && any(svalue.list > 0)) {
+    if (any(svalue.list > 0)) {
       estimate.s.data <- evaluate_all_s(svalue.list, vaf.t1, p, ctx)
       estimate.s.data <- estimate.s.data[estimate.s.data$s > 0, , drop = FALSE]
     }
@@ -1301,31 +1283,16 @@ get_s <- function(p, ctx, p_thre = 1e-6) {
 
 find_s_from_predict <- function(predict.result, ctx) {
   p.list <- unique(predict.result$p)
-  mc_cores <- getOption("teatime.mc.cores", 1L)
-  mc_cores <- suppressWarnings(as.integer(mc_cores))
-  if (is.na(mc_cores) || mc_cores < 1L) mc_cores <- 1L
-  map_fn <- if (.Platform$OS.type == "unix" && length(p.list) > 1 && mc_cores > 1L)
-    function(x, f) parallel::mclapply(x, f, mc.cores = min(length(x), mc_cores))
-  else
-    lapply
-  s.results <- map_fn(p.list, function(p) {
+  s.results <- lapply(p.list, function(p) {
     df <- get_s(p, ctx, p_thre = 1e-6)
     df$p_value <- p
     data <- pick_s(df)
-    if (nrow(data) == 0L) return(NULL)
     murange <- simulate_ratio_peak(p, data$s, ctx)
-    if (length(murange) >= 2 && all(is.finite(murange))) {
-      data$minmu <- min(murange)
-      data$maxmu <- max(murange)
-    } else {
-      data$minmu <- NA_real_
-      data$maxmu <- NA_real_
-    }
+    data$minmu <- min(murange)
+    data$maxmu <- max(murange)
     data
   })
-  s.results <- s.results[!vapply(s.results, is.null, logical(1))]
   fit.data <- data.frame()
-  if (length(s.results) == 0L) return(fit.data)
   combined_df <- do.call(rbind, s.results)
   for (try_idx in seq_along(p.list)) {
     p.pick <- p.list[try_idx]
@@ -1359,15 +1326,6 @@ find_s_from_predict <- function(predict.result, ctx) {
 }
 
 run_fitness <- function(estimates, ctx) {
-  reset_branch_seed <- function(skip = 0L) {
-    if (!is.null(ctx$seed) && !is.na(ctx$seed)) {
-      set.seed(ctx$seed)
-      if (skip > 0L) {
-        stats::runif(skip)
-      }
-    }
-  }
-
   fit.all <- estimates$fit$all
   inter.all <- estimates$normal$all
   fit.select.one <- estimates$fit$select
@@ -1381,35 +1339,21 @@ run_fitness <- function(estimates, ctx) {
   fitp <- NA
   if (!is.null(fit.all) && nrow(fit.all[!is.na(fit.all$cell.div), , drop = FALSE]) > 0) {
     fit.all <- fit.all[!is.na(fit.all$cell.div), , drop = FALSE]
-    reset_branch_seed(0L)
-    .log(ctx, "FIT", sprintf("find_s_from_predict: %d p-values", length(unique(fit.all$p))))
-    t_fit_s <- proc.time()
     fit.data <- find_s_from_predict(fit.all, ctx)
-    .log(ctx, "FIT", "find_s_from_predict done", timer = t_fit_s)
     if (!("mu" %in% colnames(fit.data))) {
-      up_val <- fit.select.one$up
-      mu.fit.pick <- if (is.finite(up_val)) up_val else fit.select.one$mu
-      fit.select.row <- if (is.finite(up_val)) {
-        fit.all[fit.all$lowerbound1 == up_val, , drop = FALSE]
-      } else {
-        fit.all[fit.all$mu == fit.select.one$mu, , drop = FALSE]
-      }
-      if (nrow(fit.select.row) == 0L) fit.select.row <- fit.all[seq_len(min(1L, nrow(fit.all))), , drop = FALSE]
-      if (nrow(fit.select.row) > 1L) fit.select.row <- fit.select.row[sample(nrow(fit.select.row), 1), , drop = FALSE]
+      mu.fit.pick <- fit.select.one$up
+      fit.select.row <- fit.all[fit.all$lowerbound1 == mu.fit.pick, , drop = FALSE]
+      fit.select.row <- fit.select.row[sample(nrow(fit.select.row), 1), , drop = FALSE]
       p <- fit.select.row$p
-      mu.s.update <- fit.data[!is.na(fit.data$p_value) & fit.data$p_value == p, , drop = FALSE]
-      if (nrow(mu.s.update) == 0L) {
-        mu.select2 <- NA_real_
-      } else {
-        mu.select2 <- mu.s.update[sample(nrow(mu.s.update), 1), , drop = FALSE]$minmu
-      }
+      mu.s.update <- fit.data[fit.data$p_value == p, , drop = FALSE]
+      mu.select2 <- mu.s.update[sample(nrow(mu.s.update), 1), , drop = FALSE]$minmu
       df <- get_s(p, ctx, p_thre = 1e-6)
       df$p_value <- p
       data <- pick_s(df)
       fitmu <- mu.fit.pick
       fitmu_candidate <- mu.select2
       fitcell <- fit.select.row$cell.div
-      fits <- if (nrow(data) > 0L) data$s else NA_real_
+      fits <- data$s
       fitp <- p
     } else {
       fitmu <- fit.data$mu
@@ -1428,25 +1372,14 @@ run_fitness <- function(estimates, ctx) {
   interp <- NA
   if (!is.null(inter.all) && nrow(inter.all[!is.na(inter.all$cell.div), , drop = FALSE]) > 0) {
     inter.all <- inter.all[!is.na(inter.all$cell.div), , drop = FALSE]
-    # Legacy TEATIME consumes a different RNG stream before normal-case fitness.
-    # Align the branch-local stream so seeded runs stay close to v1 outputs.
-    reset_branch_seed(12L)
-    .log(ctx, "INTER", sprintf("find_s_from_predict: %d p-values", length(unique(inter.all$p))))
-    t_inter_s <- proc.time()
     inter.data <- find_s_from_predict(inter.all, ctx)
-    .log(ctx, "INTER", "find_s_from_predict done", timer = t_inter_s)
     if (!("mu" %in% colnames(inter.data))) {
       mu.inter.pick <- inter.select.one$mu
       inter.select.row <- inter.all[inter.all$mu == mu.inter.pick, , drop = FALSE]
-      if (nrow(inter.select.row) == 0L) inter.select.row <- inter.all[seq_len(min(1L, nrow(inter.all))), , drop = FALSE]
-      if (nrow(inter.select.row) > 1L) inter.select.row <- inter.select.row[sample(nrow(inter.select.row), 1), , drop = FALSE]
+      inter.select.row <- inter.select.row[sample(nrow(inter.select.row), 1), , drop = FALSE]
       p <- inter.select.row$p
-      mu.s.update <- inter.data[!is.na(inter.data$p_value) & inter.data$p_value == p, , drop = FALSE]
-      if (nrow(mu.s.update) == 0L) {
-        mu.select2 <- NA_real_
-      } else {
-        mu.select2 <- mu.s.update[sample(nrow(mu.s.update), 1), , drop = FALSE]$minmu
-      }
+      mu.s.update <- inter.data[inter.data$p_value == p, , drop = FALSE]
+      mu.select2 <- mu.s.update[sample(nrow(mu.s.update), 1), , drop = FALSE]$minmu
       df <- get_s(p, ctx, p_thre = 1e-6)
       df$p_value <- p
       data <- pick_s(df)
@@ -1454,7 +1387,7 @@ run_fitness <- function(estimates, ctx) {
       intermu_candidate <- mu.inter.pick
       intertrust <- (2 * abs(mu.select2 - mu.inter.pick)) / (mu.inter.pick + mu.select2)
       intercell <- inter.select.row$cell.div
-      inters <- if (nrow(data) > 0L) data$s else NA_real_
+      inters <- data$s
       interp <- p
     } else {
       intermu <- inter.data$mu
