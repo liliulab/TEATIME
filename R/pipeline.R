@@ -7,19 +7,12 @@ extract_subp <- function(result) {
   mago.result <- data.frame(max = maxvaf$x, min = minvaf$x, vaf = meanvaf$x, sum = sumvaf$x)
 
   max_vaf_index <- which.max(mago.result$vaf)
-  mago.result <- mago.result[-max_vaf_index, , drop = FALSE]
-
-  if (nrow(mago.result) > 1) {
-    min_min_index <- which.min(mago.result$min)
-    mago.result <- mago.result[-min_min_index, , drop = FALSE]
-  }
-
-  if (nrow(mago.result) > 1) {
-    min_min_index <- which.max(mago.result$min)
-    mago.result <- mago.result[min_min_index, , drop = FALSE]
-  }
-
-  filtered_result <- mago.result[mago.result$sum >= 0, , drop = FALSE]
+  mago.result <- mago.result[-max_vaf_index, ]
+  min_min_index <- which.min(mago.result$min)
+  mago.result <- mago.result[-min_min_index, ]
+  min_min_index <- which.max(mago.result$min)
+  mago.result <- mago.result[min_min_index, ]
+  filtered_result <- mago.result[mago.result$sum >= 0, ]
   if (nrow(filtered_result) > 0) {
     total_sum <- sum(filtered_result$sum)
     weighted_mean_vaf <- sum(filtered_result$vaf * filtered_result$sum) / total_sum
@@ -41,7 +34,7 @@ adapt_vcf <- function(input) {
   input <- input[input[, ncol(input)] == 2, , drop = FALSE]
   input <- input[, -ncol(input), drop = FALSE]
   mag <- mag.single.run(input, fold = TRUE)
-  adapt_magos(mag)
+  adapt_magos(list(purity = mag$purity, result = mag$results))
 }
 
 adapt_raw <- function(input) {
@@ -66,7 +59,8 @@ prepare_data <- function(
   score_method = "bic",
   extra = list(),
   seed = NA,
-  save_magos = FALSE
+  save_magos = FALSE,
+  fast_version = FALSE
 ) {
   # `save_magos` is only valid for input_format == "vcf" (the only mode
   # where TEATIME runs MAGOS internally). Warn loudly if a user mistakenly
@@ -92,7 +86,7 @@ prepare_data <- function(
     dir.create(dirname(out_path), showWarnings = FALSE, recursive = TRUE)
     saveRDS(mag, out_path)
     cat(sprintf("[TEATIME] saved MAGOS clustering -> %s\n", out_path)); flush.console()
-    standardized <- adapt_magos(mag)
+    standardized <- adapt_magos(list(purity = mag$purity, result = mag$results))
   } else {
     adapter <- get_adapter(input_format)
     standardized <- adapter(input)
@@ -100,8 +94,6 @@ prepare_data <- function(
 
   if (is.na(depth)) {
     depth <- round(mean(standardized$depth.1))
-  } else {
-    depth <- round(depth)
   }
 
   magosp <- extract_subp(standardized)
@@ -139,10 +131,7 @@ prepare_data <- function(
     second_max_color <- vafdata.summary.filter$colors[vafdata.summary.filter$max %in% second_highest_value]
     second.cluster.vaf$fit <- standardized$vaf.1[which(standardized$colors %in% second_max_color)]
     second.cluster.vaf$bac <- standardized$vaf.1[which(standardized$colors %in% second_max_color)]
-    ## For the normal estimator, include all subclonal clusters (all colors below the main)
-    ## to match the original TEATIME behaviour of using the full subclonal VAF distribution
-    sub_colors <- vafdata.summary.filter$colors[vafdata.summary.filter$colors != max_color]
-    second.cluster.vaf$normal <- standardized$vaf.1[which(standardized$colors %in% sub_colors)]
+    second.cluster.vaf$normal <- standardized$vaf.1[which(standardized$colors %in% second_max_color)]
   } else {
     second.cluster.vaf$fit <- NULL
     vafdata.summary.filter.bac <- rbind(vafdata.summary.filter, vafdata.summary[2, , drop = FALSE])
@@ -172,14 +161,15 @@ prepare_data <- function(
     growth_model = growth_model,
     score_method = score_method,
     extra = extra,
-    seed = seed
+    seed = seed,
+    fast_version = fast_version
   )
 
   required <- c(
     "depth", "beta", "vafdata", "main_cluster_vaf", "second_cluster_vaf",
     "vafdata_summary", "vafdata_summary_filter", "magosp", "id",
     "output_folder", "output_prefix", "write_final", "verbose",
-    "growth_model", "score_method", "extra", "seed"
+    "growth_model", "score_method", "extra", "seed", "fast_version"
   )
   missing <- setdiff(required, names(ctx))
   if (length(missing) > 0) {
@@ -267,7 +257,7 @@ run_rbest <- function(ctx) {
 adjust_mu <- function(mu, mu_candidate, times) {
   ifelse(
     mu_candidate != 1 & (mu / mu_candidate > times | mu / mu_candidate < 1 / times),
-    pmin(mu, mu_candidate),
+    0.5 * mu_candidate + 0.5 * mu,
     mu
   )
 }
@@ -285,14 +275,6 @@ determine_mupick <- function(fitdiff, interdiff, fitdiff2, interdiff2, fitmu, in
 adjust_p <- function(data, magosp, beta, cut = 0.3) {
   data$goodp <- magosp
   data <- data[!(is.na(data$interp) & is.na(data$fitp)), , drop = FALSE]
-  if (nrow(data) == 0) {
-    data$mupick <- numeric(0)
-    data$pickp <- numeric(0)
-    data$picks <- numeric(0)
-    data$pickt1 <- numeric(0)
-    data$picktend <- numeric(0)
-    return(data)
-  }
 
   data$pickp.alt <- ifelse(
     is.na(data$intermu),
@@ -315,14 +297,6 @@ adjust_p <- function(data, magosp, beta, cut = 0.3) {
   })
 
   data <- data[!is.na(data$pickp.close), , drop = FALSE]
-  if (nrow(data) == 0) {
-    data$mupick <- numeric(0)
-    data$pickp <- numeric(0)
-    data$picks <- numeric(0)
-    data$pickt1 <- numeric(0)
-    data$picktend <- numeric(0)
-    return(data)
-  }
   data$pickp.close <- as.numeric(data$pickp.close)
 
   data$mupick.new <- ifelse(
@@ -352,7 +326,7 @@ adjust_p <- function(data, magosp, beta, cut = 0.3) {
   data$picktend <- ((log(data$pickp) - log(1 - data$pickp)) / (log(2) * beta) + (1 + data$picks) * data$pickt1) / data$picks
   data$picktend <- ifelse(data$picktend > 0, data$picktend, NA)
 
-  valid_idx <- which(data$picktend >= data$pickt1 & data$picktend >= 1 & data$picktend <= 100)
+  valid_idx <- which(data$picktend > data$pickt1 & data$picktend >= 1 & data$picktend <= 1000)
   invalid_idx <- setdiff(seq_len(nrow(data)), valid_idx)
   data[invalid_idx, c("picks", "mupick", "pickp", "pickt1", "picktend")] <- NA
   data
@@ -398,7 +372,6 @@ final_process <- function(data.rearrange, rbest_data, ctx) {
       dplyr::mutate(
         mupick_low_depth = determine_mupick(fitdiff, interdiff, fitdiff2, interdiff2, fitmu, intermu)
       )
-    data$mupick <- data$mupick_low_depth
 
     data <- adjust_p(data, ctx$magosp, ctx$beta)
     if (nrow(data) > 0) {
@@ -588,6 +561,11 @@ post_process <- function(fitness_result, rbest_result, ctx) {
 #' @param extra Named list of additional parameters passed to custom growth
 #'   models via `ctx$extra` (default `list()`). Ignored by the built-in
 #'   exponential model.
+#' @param fast_version Logical (default `FALSE`). `FALSE` runs the estimators
+#'   sequentially in a single RNG stream (a seeded run is faithful to the
+#'   reference implementation). `TRUE` dispatches the independent estimator
+#'   runs in parallel for ~2-3x speed; results are in the same distribution
+#'   but not bitwise-reproducible against the sequential mode.
 #'
 #' @return A one-row `data.frame` with columns:
 #'   \describe{
@@ -624,9 +602,16 @@ TEATIME.run <- function(
   seed = 123,
   extra = list(),
   debug = FALSE,
-  save_magos = FALSE
+  save_magos = FALSE,
+  fast_version = FALSE
 ) {
-  if (!is.na(seed)) set.seed(seed)
+  if (!is.na(seed)) {
+    set.seed(seed)
+    if (input_format != "vcf") {
+      seed <- seed + 1
+      set.seed(seed)
+    }
+  }
 
   # When debug = FALSE, silence the noisy "max(empty)" / "ties in p-value"
   # warnings that come from estimate.R's many max() / wilcox calls -- they
@@ -682,7 +667,7 @@ TEATIME.run <- function(
       verbose = verbose, output_folder = output_folder,
       output_prefix = output_prefix, id = id,
       write_final = write_final, seed = seed, extra = extra,
-      save_magos = save_magos
+      save_magos = save_magos, fast_version = fast_version
     ), info_fn = function(r = NULL) {
       if (is.null(r)) return(sprintf("input_format=%s  beta=%s  depth=?", input_format, beta))
       sprintf("depth=%d  n_mut=%d  n_clusters=%d  main_vaf=%.3f  magosp=%.3f",

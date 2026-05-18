@@ -18,14 +18,22 @@ devtools::install_github("liliulab/TEATIME")
 
 ## Quick Start
 
-Run TEATIME end-to-end from raw read counts in a single call
+TEATIME ships in two modes controlled by `fast_version`:
+
+- **Fast mode (`fast_version = TRUE`)** — finishes ~3× faster. 
+- **Default mode (`fast_version = FALSE`)** — potentially more precise estimates of the selection coefficient `s`.
+
+Quick start uses fast mode for speed:
 
 ```r
 library(TEATIME)
 # input has 3 columns: REF, ALT, CN (per-mutation copy number)
-result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9)
+result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9,
+                      fast_version = TRUE)
 print(result)
 ```
+
+For a potentially more accurate estimate, set `fast_version = FALSE` (the default).
 
 ---
 
@@ -107,6 +115,7 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `seed` | `123` | Random seed for reproducibility; set to `NA` to run estimators three times independently for stochastic robustness |
 | `debug` | `FALSE` | Enable debug mode |
 | `save_magos` | `FALSE` | `vcf` mode only: when `TRUE`, save the intermediate MAGOS clustering to `<output_folder>/<output_prefix>_MAGOS.rds`|
+| `fast_version` | `FALSE` | When `TRUE`,  ~3× speed-up. When `FALSE` (default), give potentially more precise `s` estimates. |
 
 ---
 

@@ -1,0 +1,209 @@
+---
+title: "TEATIME Example Workflow"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    df_print: paged
+vignette: >
+  %\VignetteIndexEntry{TEATIME workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.align = "center", fig.width = 6, fig.height = 5)
+```
+
+```{r teatime-version}
+library(TEATIME)
+cat("TEATIME version:", as.character(packageVersion("TEATIME")), "\n")
+```
+
+TEATIME is a framework for estimating evolutionary parameters using single-timepoint WES or WGS data. In this workflow, we demonstrate the complete process using an example from MOBSTER dataset, including data preprocessing, visualization, clustering, and preparation of inputs for TEATIME analysis.
+
+## Example case
+
+The `exampledata.rds` contains a simulated single-timepoint tumor composed of a root clone (clone0) and one expanding subclone (clone1). It includes the overall cellular composition, evolutionary parameters, and simulated sequencing reads.
+
+```{r truth-fractions}
+library(dplyr)
+
+simulations <- readRDS(system.file("extdata", "exampledata.rds",
+                                   package = "TEATIME"))
+
+counts          <- simulations$cell_counts["counts", ]
+clone0_fraction <- as.numeric(counts["clone0"] / counts["total"])
+clone1_fraction <- as.numeric(counts["clone1"] / counts["total"])
+
+cat("Clone0 fraction (within tumor):", round(clone0_fraction * 100, 1), "%\n")
+cat("Clone1 fraction (within tumor):", round(clone1_fraction * 100, 1), "%\n")
+```
+The two clones are roughly balanced (~56% vs ~44%) in this simulation.
+
+## Evolutionary Parameters
+Next, we examine some evolutionary parameters that describe the tumor’s growth dynamics.For example, the mutation rate (μ) and the fitness (s).
+
+
+```{r truth-params}
+evo.parameter <- simulations$clone_parameters
+mu <- evo.parameter$mutation_rate[1]
+s  <- (evo.parameter$birth_rate[2] - evo.parameter$death_rates[2]) /
+      (evo.parameter$birth_rate[1] - evo.parameter$death_rates[1]) - 1
+
+cat("Mutation rate:", mu, "\n")
+cat("s (clone1 vs clone0):", round(s, 2), "\n")
+```
+
+## Sequencing data
+
+Next, we examine the sequencing data, which provide the variant allele frequencies (VAFs) used to infer evolutionary parameters. Since this simulation assumes a diploid genome and 100% purity, no additional filtering is required. In real datasets, it is generally recommended to retain only mutations located in copy-neutral (CN = 2) regions because of TEATIME’s assumption.
+```{r seq-data}
+library(data.table)
+
+data <- as.data.table(simulations$sequencing)
+head(data)
+
+data[, CN := 2]
+```
+
+## Analysis
+## Step 1 — Cluster mutations with MAGOS
+
+TEATIME bundles a vectorised version of MAGOS internally. Save the clustering result so the rest of the pipeline can be re-run without re-clustering.
+
+```{r magos-run}
+library(TEATIME)
+mag.single.run <- getFromNamespace("mag.single.run", "TEATIME")
+
+data[, t_ref_count := DP - ALT]
+data[, t_alt_count := ALT]
+input.data <- data[, .(REF = t_ref_count, ALT = t_alt_count)]
+
+# Run MAGOS and save for reproducibility
+run <- mag.single.run(input.data = input.data, fold = TRUE)
+saveRDS(run, "MAGOS.rds")
+```
+
+Load the pre-computed result that ships with the package and inspect clusters:
+
+```{r magos-plot, fig.cap="MAGOS clustering result"}
+input.file <- readRDS(system.file("extdata", "MAGOS.rds",
+                                  package = "TEATIME"))
+
+plot(input.file$results$vaf.1, input.file$results$depth.1,
+     col  = input.file$results$colors,
+     pch  = 19, cex = 0.6,
+     xlab = "VAF", ylab = "Depth",
+     main = "MAGOS Clustering Result")
+```
+
+## Step 2 — Run TEATIME
+
+`TEATIME.run()` accepts three input formats.
+
+### Option 1 — Raw read counts (`input_format = "vcf"`)
+
+The simplest path: pass a `data.frame` with `REF`, `ALT`, and per-mutation
+`CN`. TEATIME runs the internal fast MAGOS, then estimates parameters.
+
+For this demo we enable `fast_version = TRUE`, which is ~3× speed-up. In fast mode the selection
+coefficient `s` is a stochastic approximation. To disable it and get a potentially more precise `s`, set `fast_version = FALSE` (default). The trade-off is not guaranteed;
+
+```{r teatime-vcf}
+samplename    <- "test"
+output.folder <- file.path("./")
+dir.create(output.folder, showWarnings = FALSE)
+
+vcf.input <- data[, .(REF = DP - ALT, ALT = ALT, CN = CN)]
+
+result.vcf <- TEATIME.run(
+  input         = vcf.input,
+  input_format  = "vcf",
+  beta          = 0.9,
+  output_folder = output.folder,
+  output_prefix = "TEATIME",
+  id            = samplename,
+  seed          = 123,
+  fast_version  = TRUE       # demo speed; set FALSE for the most accurate s
+  # save_magos  = TRUE       # uncomment to persist the intermediate MAGOS rds
+)
+print(result.vcf)
+```
+The TEATIME output file contains several key inferred parameters: μ mutation rate, s selection coefficient, p subclonal fraction, emergence_time emergence time of the subclone,tau subclone expansion score. We can now compare the estimated parameters with the true values from the simulation.
+
+### Option 2 — MAGOS clustering result (`input_format = "magos"`)
+
+Skip the internal MAGOS step by passing the pre-computed clustering:
+
+```{r teatime-magos, eval = FALSE}
+depth <- round(mean(input.file$results$depth.1))
+
+result <- TEATIME.run(
+  input         = input.file,
+  input_format  = "magos",
+  beta          = 0.9,
+  depth         = depth,
+  output_folder = output.folder,
+  output_prefix = "TEATIME",
+  id            = samplename,
+  seed          = 123
+)
+```
+
+### Option 3 — Pre-clustered data (`input_format = "raw"`)
+
+Any clustering tool (PyClone, MAGOS, custom) — supply a `data.frame` with
+`vaf.1`, `depth.1`, `colors`:
+
+```{r teatime-raw,eval = FALSE}
+dt <- as.data.table(data)
+#pseudo-clustering using quantile bins
+K <- 3
+brks <- quantile(dt$VAF, probs = seq(0, 1, length.out = K + 1), na.rm = TRUE)
+pseudo_clusters <- paste0("c", cut(dt$VAF, breaks = brks, include.lowest = TRUE, labels = FALSE))
+
+# Assemble TEATIME input for Option 3:
+# Column names must be exactly vaf.1, depth.1, colors
+input.data <- data.frame(
+  vaf.1   = dt$VAF,
+  depth.1 = dt$DP,
+  colors  = pseudo_clusters,
+  check.names = FALSE
+)
+
+
+result.raw <- TEATIME.run(
+  input         = input.data,
+  input_format  = "raw",
+  beta          = 0.9,
+  output_folder = output.folder,
+  output_prefix = "TEATIME_raw",
+  id            = samplename,
+  seed          = 123
+)
+```
+
+## Step 3 — Truth comparison
+
+```{r truth-comparison}
+mu_error <- (result.vcf$mu - mu) / mu
+s_error  <- (result.vcf$s  - s)  / s
+p_error  <- (result.vcf$p  - clone1_fraction) / clone1_fraction
+
+cat(sprintf("Relative error of mutation rate: %.2f%%\n", mu_error * 100))
+cat(sprintf("Relative error of fitness:       %.2f%%\n", s_error  * 100))
+cat(sprintf("Relative error of frequency:     %.2f%%\n", p_error  * 100))
+```
+
+When mutations in diploid regions are too few to support analysis, users may,as a last resort,consider using tools such as PureCN to obtain adjusted VAFs. The mean sequencing depth can then be used to simulate reference and alternate read counts as TEATIME inputs. However, because adjusted VAFs can vary across methods and may be inaccurate in some cases, this approach should be regarded as a fallback option only, and the resulting TEATIME estimates should be interpreted with caution.
+
+## Reference
+Caravagna, G., Heide, T., Williams, M.J. et al. Subclonal reconstruction of tumors by using machine learning and population genetics. Nat Genet 52, 898–907 (2020). https://doi.org/10.1038/s41588-020-0675-5
+
+Navid Ahmadinejad, Shayna Troftgruben, Junwen Wang, Pramod B Chandrashekar, Valentin Dinu, Carlo Maley, Li Liu, Accurate Identification of Subclones in Tumor Genomes, Molecular Biology and Evolution, Volume 39, Issue 7, July 2022, msac136, https://doi.org/10.1093/molbev/msac136
+
+Riester, M., Singh, A.P., Brannon, A.R. et al. PureCN: copy number calling and SNV classification using targeted short read sequencing. Source Code Biol Med 11, 13 (2016). https://doi.org/10.1186/s13029-016-0060-z
+
+Roth, A., Khattra, J., Yap, D. et al. PyClone: statistical inference of clonal population structure in cancer. Nat Methods 11, 396–398 (2014). https://doi.org/10.1038/nmeth.2883
