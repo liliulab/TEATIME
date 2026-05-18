@@ -7,19 +7,12 @@ extract_subp <- function(result) {
   mago.result <- data.frame(max = maxvaf$x, min = minvaf$x, vaf = meanvaf$x, sum = sumvaf$x)
 
   max_vaf_index <- which.max(mago.result$vaf)
-  mago.result <- mago.result[-max_vaf_index, , drop = FALSE]
-
-  if (nrow(mago.result) > 1) {
-    min_min_index <- which.min(mago.result$min)
-    mago.result <- mago.result[-min_min_index, , drop = FALSE]
-  }
-
-  if (nrow(mago.result) > 1) {
-    min_min_index <- which.max(mago.result$min)
-    mago.result <- mago.result[min_min_index, , drop = FALSE]
-  }
-
-  filtered_result <- mago.result[mago.result$sum >= 0, , drop = FALSE]
+  mago.result <- mago.result[-max_vaf_index, ]
+  min_min_index <- which.min(mago.result$min)
+  mago.result <- mago.result[-min_min_index, ]
+  min_min_index <- which.max(mago.result$min)
+  mago.result <- mago.result[min_min_index, ]
+  filtered_result <- mago.result[mago.result$sum >= 0, ]
   if (nrow(filtered_result) > 0) {
     total_sum <- sum(filtered_result$sum)
     weighted_mean_vaf <- sum(filtered_result$vaf * filtered_result$sum) / total_sum
@@ -99,9 +92,7 @@ prepare_data <- function(
   }
 
   if (is.na(depth)) {
-    depth <- round(mean(standardized$depth.1))
-  } else {
-    depth <- round(depth)
+    depth <- mean(standardized$depth.1)
   }
 
   magosp <- extract_subp(standardized)
@@ -139,10 +130,7 @@ prepare_data <- function(
     second_max_color <- vafdata.summary.filter$colors[vafdata.summary.filter$max %in% second_highest_value]
     second.cluster.vaf$fit <- standardized$vaf.1[which(standardized$colors %in% second_max_color)]
     second.cluster.vaf$bac <- standardized$vaf.1[which(standardized$colors %in% second_max_color)]
-    ## For the normal estimator, include all subclonal clusters (all colors below the main)
-    ## to match the original TEATIME behaviour of using the full subclonal VAF distribution
-    sub_colors <- vafdata.summary.filter$colors[vafdata.summary.filter$colors != max_color]
-    second.cluster.vaf$normal <- standardized$vaf.1[which(standardized$colors %in% sub_colors)]
+    second.cluster.vaf$normal <- standardized$vaf.1[which(standardized$colors %in% second_max_color)]
   } else {
     second.cluster.vaf$fit <- NULL
     vafdata.summary.filter.bac <- rbind(vafdata.summary.filter, vafdata.summary[2, , drop = FALSE])
@@ -267,7 +255,7 @@ run_rbest <- function(ctx) {
 adjust_mu <- function(mu, mu_candidate, times) {
   ifelse(
     mu_candidate != 1 & (mu / mu_candidate > times | mu / mu_candidate < 1 / times),
-    pmin(mu, mu_candidate),
+    0.5 * mu_candidate + 0.5 * mu,
     mu
   )
 }
@@ -285,14 +273,6 @@ determine_mupick <- function(fitdiff, interdiff, fitdiff2, interdiff2, fitmu, in
 adjust_p <- function(data, magosp, beta, cut = 0.3) {
   data$goodp <- magosp
   data <- data[!(is.na(data$interp) & is.na(data$fitp)), , drop = FALSE]
-  if (nrow(data) == 0) {
-    data$mupick <- numeric(0)
-    data$pickp <- numeric(0)
-    data$picks <- numeric(0)
-    data$pickt1 <- numeric(0)
-    data$picktend <- numeric(0)
-    return(data)
-  }
 
   data$pickp.alt <- ifelse(
     is.na(data$intermu),
@@ -315,14 +295,6 @@ adjust_p <- function(data, magosp, beta, cut = 0.3) {
   })
 
   data <- data[!is.na(data$pickp.close), , drop = FALSE]
-  if (nrow(data) == 0) {
-    data$mupick <- numeric(0)
-    data$pickp <- numeric(0)
-    data$picks <- numeric(0)
-    data$pickt1 <- numeric(0)
-    data$picktend <- numeric(0)
-    return(data)
-  }
   data$pickp.close <- as.numeric(data$pickp.close)
 
   data$mupick.new <- ifelse(
@@ -398,7 +370,6 @@ final_process <- function(data.rearrange, rbest_data, ctx) {
       dplyr::mutate(
         mupick_low_depth = determine_mupick(fitdiff, interdiff, fitdiff2, interdiff2, fitmu, intermu)
       )
-    data$mupick <- data$mupick_low_depth
 
     data <- adjust_p(data, ctx$magosp, ctx$beta)
     if (nrow(data) > 0) {
@@ -626,7 +597,13 @@ TEATIME.run <- function(
   debug = FALSE,
   save_magos = FALSE
 ) {
-  if (!is.na(seed)) set.seed(seed)
+  if (!is.na(seed)) {
+    set.seed(seed)
+    if (input_format != "vcf") {
+      seed <- seed + 1
+      set.seed(seed)
+    }
+  }
 
   # When debug = FALSE, silence the noisy "max(empty)" / "ties in p-value"
   # warnings that come from estimate.R's many max() / wilcox calls -- they

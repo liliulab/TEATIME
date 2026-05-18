@@ -159,31 +159,17 @@ peak_test <- function(
   depth,
   num_decimal,
   temp_check = FALSE,
-  n_sim = 10000,
-  tol = 1e-4,
-  batch_size = 2000
+  n_sim = NULL,
+  tol = NULL,
+  batch_size = NULL
 ) {
   temp_k <- if (temp_check) 0 else k
   if (nrow(df) < temp_k) {
     return(c(NA_real_, NA_real_, NA_real_, NA_real_))
   }
 
-  if (tol <= 0) {
-    simulated <- round(stats::rbinom(n_sim, depth, vaf) / depth, num_decimal)
-  } else {
-    simulated <- numeric(0)
-    running_mean <- NA_real_
-    while (length(simulated) < n_sim) {
-      draw_n <- min(batch_size, n_sim - length(simulated))
-      new_vals <- round(stats::rbinom(draw_n, depth, vaf) / depth, num_decimal)
-      simulated <- c(simulated, new_vals)
-      new_mean <- mean(simulated)
-      if (!is.na(running_mean) && abs(new_mean - running_mean) < tol && length(simulated) >= batch_size * 2) {
-        break
-      }
-      running_mean <- new_mean
-    }
-  }
+  n_simulations <- 100000
+  simulated <- round(stats::rbinom(n_simulations, depth, vaf) / depth, num_decimal)
 
   if (k < Min_Sample_size) {
     largest_right_values <- generate_bootstrap_samples(df[seq_len(k), "vaf"], Min_Sample_size, num_decimal)
