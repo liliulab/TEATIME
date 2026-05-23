@@ -10,6 +10,33 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// beta_reassign_core
+Rcpp::List beta_reassign_core(Rcpp::NumericMatrix probs, Rcpp::IntegerVector vaf_index, Rcpp::NumericVector unique_vaf, Rcpp::IntegerVector freq);
+RcppExport SEXP _TEATIME_beta_reassign_core(SEXP probsSEXP, SEXP vaf_indexSEXP, SEXP unique_vafSEXP, SEXP freqSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type probs(probsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type vaf_index(vaf_indexSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type unique_vaf(unique_vafSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type freq(freqSEXP);
+    rcpp_result_gen = Rcpp::wrap(beta_reassign_core(probs, vaf_index, unique_vaf, freq));
+    return rcpp_result_gen;
+END_RCPP
+}
+// dbeta_matrix_cpp
+Rcpp::NumericMatrix dbeta_matrix_cpp(Rcpp::NumericVector x, Rcpp::NumericVector a, Rcpp::NumericVector b);
+RcppExport SEXP _TEATIME_dbeta_matrix_cpp(SEXP xSEXP, SEXP aSEXP, SEXP bSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type x(xSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type a(aSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type b(bSEXP);
+    rcpp_result_gen = Rcpp::wrap(dbeta_matrix_cpp(x, a, b));
+    return rcpp_result_gen;
+END_RCPP
+}
 // wilcox_test_p_asym
 double wilcox_test_p_asym(Rcpp::NumericVector x, Rcpp::NumericVector y);
 RcppExport SEXP _TEATIME_wilcox_test_p_asym(SEXP xSEXP, SEXP ySEXP) {
@@ -24,6 +51,8 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_TEATIME_beta_reassign_core", (DL_FUNC) &_TEATIME_beta_reassign_core, 4},
+    {"_TEATIME_dbeta_matrix_cpp", (DL_FUNC) &_TEATIME_dbeta_matrix_cpp, 3},
     {"_TEATIME_wilcox_test_p_asym", (DL_FUNC) &_TEATIME_wilcox_test_p_asym, 2},
     {NULL, NULL, 0}
 };

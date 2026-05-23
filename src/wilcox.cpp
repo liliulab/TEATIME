@@ -17,6 +17,100 @@
 #include <vector>
 #include <cmath>
 
+// beta_reassign_core(probs, vaf_index, unique_vaf, freq, n_clusters)
+// Computes the (vaf, cluster, freq) tidy table that beta_reassign returns:
+//   1. group rows of `probs` by `vaf_index` and sum them per group
+//   2. divide each group's row by its row sum and multiply by `freq[group]`
+//   3. round the result to integer allocations
+//   4. expand each non-zero allocation into `alloc` rows with
+//      (vaf = unique_vaf[group], cluster = column, freq = alloc)
+// Iteration order is row-major (group ascending, then column ascending) so the
+// output matches the R loop's row order bit-identically.
+//
+// [[Rcpp::export]]
+Rcpp::List beta_reassign_core(Rcpp::NumericMatrix probs,
+                              Rcpp::IntegerVector vaf_index,
+                              Rcpp::NumericVector unique_vaf,
+                              Rcpp::IntegerVector freq) {
+  const int N = probs.nrow();
+  const int K = probs.ncol();
+  const int G = unique_vaf.size();
+  // Group-sum probs by vaf_index (1-based group ids).
+  Rcpp::NumericMatrix prob_sums(G, K);
+  for (int i = 0; i < N; ++i) {
+    const int g = vaf_index[i] - 1;
+    for (int j = 0; j < K; ++j) prob_sums(g, j) += probs(i, j);
+  }
+  // Per-group totals.
+  std::vector<double> totals(G, 0.0);
+  for (int g = 0; g < G; ++g)
+    for (int j = 0; j < K; ++j) totals[g] += prob_sums(g, j);
+  // Allocation: round(prob_sums / totals * freq[group]).
+  Rcpp::IntegerMatrix alloc(G, K);
+  for (int g = 0; g < G; ++g) {
+    if (totals[g] <= 0.0 || !std::isfinite(totals[g])) continue;
+    const double t = totals[g];
+    const double fg = static_cast<double>(freq[g]);
+    for (int j = 0; j < K; ++j) {
+      const double v = prob_sums(g, j) / t * fg;
+      if (!std::isfinite(v)) continue;
+      // R's round() is banker's rounding to even on half values; std::round is
+      // away-from-zero. Replicate R's by using nearbyint with FE_TONEAREST.
+      alloc(g, j) = static_cast<int>(std::nearbyint(v));
+    }
+  }
+  // Total output rows = sum of alloc.
+  int total_rows = 0;
+  for (int g = 0; g < G; ++g)
+    for (int j = 0; j < K; ++j)
+      if (alloc(g, j) > 0) total_rows += alloc(g, j);
+  Rcpp::NumericVector out_vaf(total_rows);
+  Rcpp::IntegerVector out_cluster(total_rows);
+  Rcpp::IntegerVector out_freq(total_rows);
+  int p = 0;
+  for (int g = 0; g < G; ++g) {
+    for (int j = 0; j < K; ++j) {
+      const int n = alloc(g, j);
+      if (n <= 0) continue;
+      const double v = unique_vaf[g];
+      const int cluster_id = j + 1;  // R is 1-based
+      for (int r = 0; r < n; ++r) {
+        out_vaf[p]     = v;
+        out_cluster[p] = cluster_id;
+        out_freq[p]    = n;
+        ++p;
+      }
+    }
+  }
+  return Rcpp::List::create(
+    Rcpp::_["vaf"]     = out_vaf,
+    Rcpp::_["cluster"] = out_cluster,
+    Rcpp::_["freq"]    = out_freq
+  );
+}
+
+// dbeta_matrix_cpp(x, a, b) returns a length(x) x length(a) matrix with
+// column j = stats::dbeta(x, a[j], b[j]). The tight C++ double loop calls
+// R's `dbeta` density directly per (i, j), skipping the R-level allocation of
+// `rep()` arguments that the vectorised R wrapper needs.
+//
+// [[Rcpp::export]]
+Rcpp::NumericMatrix dbeta_matrix_cpp(Rcpp::NumericVector x,
+                                     Rcpp::NumericVector a,
+                                     Rcpp::NumericVector b) {
+  const int N = x.size();
+  const int K = a.size();
+  Rcpp::NumericMatrix out(N, K);
+  for (int j = 0; j < K; ++j) {
+    const double aj = a[j];
+    const double bj = b[j];
+    for (int i = 0; i < N; ++i) {
+      out(i, j) = R::dbeta(x[i], aj, bj, /*give_log=*/0);
+    }
+  }
+  return out;
+}
+
 // [[Rcpp::export]]
 double wilcox_test_p_asym(Rcpp::NumericVector x, Rcpp::NumericVector y) {
   const int nx = x.size();

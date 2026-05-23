@@ -160,11 +160,23 @@ slope_simu <- function(cell_div, mu, p, ctx, num_decimal = 3) {
   a <- ctx$depth * result_vector
   b <- ctx$depth - a
   mu_est_list <- numeric(3)
+  # In fast mode the per-vaf rbinom calls are batched into one vectorised draw
+  # (probability vector tiled by mu_int per element, matching the per-vaf draw
+  # order), then reshaped to the same layout the sapply path produces.
+  fast <- isTRUE(getOption("teatime.fast_version", FALSE))
+  mu_int <- round(mu)
+  K <- length(result_vector)
+  prob_vec <- if (fast) rep(result_vector, each = mu_int) else NULL
   for (try_idx in 1:3) {
-    all_simulated_vafs_list <- sapply(result_vector, function(vaf) {
-      round(stats::rbinom(round(mu), ctx$depth, vaf) / ctx$depth, num_decimal)
-    })
-    all_simulated_vafs <- as.vector(t(all_simulated_vafs_list))
+    if (fast) {
+      draws <- round(stats::rbinom(mu_int * K, ctx$depth, prob_vec) / ctx$depth, num_decimal)
+      all_simulated_vafs <- as.vector(t(matrix(draws, nrow = mu_int, ncol = K)))
+    } else {
+      all_simulated_vafs_list <- sapply(result_vector, function(vaf) {
+        round(stats::rbinom(round(mu), ctx$depth, vaf) / ctx$depth, num_decimal)
+      })
+      all_simulated_vafs <- as.vector(t(all_simulated_vafs_list))
+    }
     probs <- dbeta_matrix(all_simulated_vafs, a, b)
     df <- data.frame(prob = probs, vaf = all_simulated_vafs)
     df <- beta_reassign(df)
@@ -978,7 +990,10 @@ run_estimates <- function(ctx, p_thre = 0.01) {
     res <- tryCatch(.ok(estimator_fn(ctx = ctx, p_thre = p_thre)), error = .err)
     if (res$status == "ok") res$value else NULL
   }
-  if (isTRUE(ctx$fast_version) && .Platform$OS.type == "unix" && n_jobs > 1L) {
+  # `teatime.serial_fast` forces the sequential path even in fast mode (useful
+  # for Rprof, since mclapply children's profile is hidden from the parent).
+  serial_fast <- isTRUE(getOption("teatime.serial_fast", FALSE))
+  if (isTRUE(ctx$fast_version) && .Platform$OS.type == "unix" && n_jobs > 1L && !serial_fast) {
     mc <- getOption("teatime.mc.cores", max(1L, parallel::detectCores(logical = TRUE) - 1L))
     mc <- suppressWarnings(as.integer(mc))
     if (is.na(mc) || mc < 1L) mc <- 1L

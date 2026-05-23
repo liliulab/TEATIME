@@ -45,10 +45,7 @@ collect_rows <- function(fn, items) {
 # the per-column sapply form. The two paths produce bit-identical output.
 dbeta_matrix <- function(x, a, b) {
   if (isTRUE(getOption("teatime.fast_version", FALSE))) {
-    matrix(stats::dbeta(rep(x, length(a)),
-                        rep(a, each = length(x)),
-                        rep(b, each = length(x))),
-           nrow = length(x))
+    dbeta_matrix_cpp(as.numeric(x), as.numeric(a), as.numeric(b))
   } else {
     sapply(seq_along(a), function(i) stats::dbeta(x, a[i], b[i]))
   }
@@ -81,22 +78,14 @@ beta_reassign <- function(df) {
   alloc <- round(prob_sums / totals * freq)
   alloc[!is.finite(alloc)] <- 0
 
-  # Fast mode expands the (vaf x cluster) allocation matrix into a tidy
-  # (vaf, cluster, freq) table in one vectorised pass (row-major order to
-  # preserve downstream ordering); default mode walks the matrix row by row.
+  # Fast mode delegates the group-by + rounding + expansion to a single C++
+  # routine (beta_reassign_core) that walks the (vaf x cluster) matrix once and
+  # writes the tidy (vaf, cluster, freq) output. Row order is row-major (group
+  # ascending then column ascending) to match the per-row R loop output.
   if (isTRUE(getOption("teatime.fast_version", FALSE))) {
-    nz <- which(alloc > 0, arr.ind = TRUE)
-    if (nrow(nz) > 0L) {
-      nz <- nz[order(nz[, "row"], nz[, "col"]), , drop = FALSE]
-      counts <- alloc[nz]
-      final_df <- data.frame(
-        vaf     = rep(unique_vaf[nz[, "row"]], counts),
-        cluster = rep(nz[, "col"], counts),
-        freq    = rep(counts, counts)
-      )
-    } else {
-      final_df <- data.frame(vaf = numeric(0), cluster = integer(0), freq = numeric(0))
-    }
+    parts <- beta_reassign_core(probs, as.integer(vaf_index),
+                                as.numeric(unique_vaf), as.integer(freq))
+    final_df <- data.frame(vaf = parts$vaf, cluster = parts$cluster, freq = parts$freq)
   } else {
     expanded_vaf <- c()
     expanded_cluster <- c()
