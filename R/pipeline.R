@@ -617,6 +617,14 @@ TEATIME.run <- function(
   save_magos = FALSE,
   fast_version = FALSE
 ) {
+  # Single switch read by the inner speedup paths (Rcpp Wilcoxon, vectorised
+  # beta_reassign, get_slope cache in slope_method). When `fast_version = TRUE`
+  # these use their accelerated implementations; otherwise every inner function
+  # behaves exactly as in the reference release.
+  prev_fast_opt <- getOption("teatime.fast_version", FALSE)
+  options(teatime.fast_version = isTRUE(fast_version))
+  on.exit(options(teatime.fast_version = prev_fast_opt), add = TRUE)
+
   if (!is.na(seed)) {
     set.seed(seed)
     if (input_format != "vcf") {

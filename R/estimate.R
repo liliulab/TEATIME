@@ -1,5 +1,5 @@
 .vaf_prob_df <- function(vaf_set, p_vec, depth) {
-  probs <- sapply(seq_along(p_vec), function(i) stats::dbeta(vaf_set, depth * p_vec[i], depth - depth * p_vec[i]))
+  probs <- dbeta_matrix(vaf_set, depth * p_vec, depth - depth * p_vec)
   df <- data.frame(probs, vaf = vaf_set, check.names = FALSE)
   names(df)[seq_along(p_vec)] <- paste0("prob.", seq_along(p_vec))
   df
@@ -62,6 +62,48 @@ calculate_mu <- function(data, ctx) {
     strucchange::breakpoints(cumsum ~ x, data = data, h = 3 / nrow(data))
   }, error = function(e) e)
 
+  # In fast mode the per-segment OLS fit (slope, AIC, BIC for `cumsum ~ x`) is
+  # computed via the one-step closed forms (slope = cov(x,y)/var(x); -2 log-lik
+  # for Gaussian OLS plus the corresponding AIC/BIC penalties), which keeps the
+  # inner loop free of the model.frame factoring overhead.
+  fast <- isTRUE(ctx$fast_version)
+
+  if (fast) {
+    fast_lm <- function(x, y) {
+      n <- length(x)
+      mx <- mean(x); my <- mean(y)
+      Sxx <- sum((x - mx) * (x - mx))
+      if (n < 2L || Sxx == 0) {
+        return(list(slope = NA_real_, aic = Inf, bic = Inf))
+      }
+      slope <- sum((x - mx) * (y - my)) / Sxx
+      intercept <- my - slope * mx
+      RSS <- sum((y - (intercept + slope * x))^2)
+      loglik <- -n / 2 * (log(2 * pi) + log(RSS / n) + 1)
+      list(slope = slope, aic = -2 * loglik + 2 * 3, bic = -2 * loglik + log(n) * 3)
+    }
+    if (!inherits(possible_error, "error")) {
+      mu_turn <- possible_error
+      bf <- strucchange::breakfactor(mu_turn)
+      levels_bf <- unique(bf)
+      n_seg <- length(levels_bf)
+      slopes      <- numeric(n_seg)
+      aic_values  <- numeric(n_seg)
+      bic_values  <- numeric(n_seg)
+      for (j in seq_len(n_seg)) {
+        mask <- bf == levels_bf[j]
+        fit <- fast_lm(data$x[mask], data$cumsum[mask])
+        slopes[j]     <- fit$slope * (-1) * ctx$beta * log(2)
+        aic_values[j] <- fit$aic
+        bic_values[j] <- fit$bic
+      }
+      return((slopes[which.min(aic_values)] + slopes[which.min(bic_values)]) / 2)
+    }
+    fit <- fast_lm(data$x, data$cumsum)
+    return(fit$slope * (-1) * ctx$beta * log(2))
+  }
+
+  # Default mode: byte-for-byte the reference implementation.
   if (!inherits(possible_error, "error")) {
     mu_turn <- possible_error
     bf <- strucchange::breakfactor(mu_turn)
@@ -123,7 +165,7 @@ slope_simu <- function(cell_div, mu, p, ctx, num_decimal = 3) {
       round(stats::rbinom(round(mu), ctx$depth, vaf) / ctx$depth, num_decimal)
     })
     all_simulated_vafs <- as.vector(t(all_simulated_vafs_list))
-    probs <- sapply(seq_along(a), function(i) stats::dbeta(all_simulated_vafs, a[i], b[i]))
+    probs <- dbeta_matrix(all_simulated_vafs, a, b)
     df <- data.frame(prob = probs, vaf = all_simulated_vafs)
     df <- beta_reassign(df)
     df <- df[!duplicated(df), , drop = FALSE]
@@ -163,8 +205,14 @@ slope_method <- function(p, vaf_set, ctx, p_thre, start_div = 1, end_div = NA, n
       mulist <- c()
       plist <- c()
       mean_list <- NA_real_
+      # In fast mode the deterministic observed-slope call is hoisted out of
+      # the three Monte-Carlo z-score tries (df, p, result_vector, ctx, and
+      # num_decimal are all loop-invariant). Default mode keeps the per-try
+      # call exactly as in the reference release.
+      fast <- isTRUE(ctx$fast_version)
+      mu_from_real_cached <- if (fast) get_slope(df, p, result_vector, ctx, num_decimal) else NA_real_
       for (try_idx in 1:3) {
-        mu_from_real <- get_slope(df, p, result_vector, ctx, num_decimal)
+        mu_from_real <- if (fast) mu_from_real_cached else get_slope(df, p, result_vector, ctx, num_decimal)
         mu_from_simu <- slope_simu(cell_div_value, mu_est, p, ctx, num_decimal)
         mean_list <- mean(mu_from_simu)
         sd_list <- max(stats::sd(mu_from_simu), 1.5)
@@ -417,7 +465,7 @@ calculate_left_right_most_vaf_fit <- function(border_vaf, ctx, num_decimal = 3) 
   depth <- ctx$depth
   beta <- ctx$beta
   prob_df <- function(x, s1, s2) {
-    probs <- sapply(seq_along(s1), function(j) stats::dbeta(x, s1[j], s2[j]))
+    probs <- dbeta_matrix(x, s1, s2)
     d <- data.frame(probs, vaf = x, check.names = FALSE)
     names(d)[seq_along(s1)] <- paste0("prob.", seq_along(s1))
     d
@@ -568,7 +616,7 @@ iterate_p_optimize <- function(clear, give.vaf, upper_clonal_vaf, clonal.vaf.lef
       c(ctx$depth * upper_clonal_vaf, ctx$depth * suppose_right_vaf)
     }
     b <- ctx$depth - a
-    probs <- sapply(seq_along(a), function(i) stats::dbeta(clonal.vaf.left, a[i], b[i]))
+    probs <- dbeta_matrix(clonal.vaf.left, a, b)
     df <- data.frame(probs, vaf = clonal.vaf.left, check.names = FALSE)
     names(df)[seq_along(a)] <- paste0("prob.", seq_along(a))
     df <- beta_reassign(df)
@@ -762,7 +810,7 @@ run_bac <- function(ctx, p_thre) {
   right_most.vaf <- max(mean.a.b)
   right_vaf_index <- which.max(mean.a.b)
   keep.right.vaf <- right_most.vaf
-  probs <- sapply(seq_along(a), function(i) stats::dbeta(second.vaf, a[i], b[i]))
+  probs <- dbeta_matrix(second.vaf, a, b)
   df <- data.frame(probs, vaf = second.vaf, check.names = FALSE)
   names(df)[seq_along(a)] <- paste0("prob.", seq_along(a))
   if (length(mean.a.b) > 1) {
@@ -785,7 +833,7 @@ run_bac <- function(ctx, p_thre) {
     right_most.vaf <- max(mean.a.b)
     if (length(mean.a.b) < 2) break
     right_vaf_index <- which.max(mean.a.b)
-    probs <- sapply(seq_along(a), function(i) stats::dbeta(second.update.vaf, a[i], b[i]))
+    probs <- dbeta_matrix(second.update.vaf, a, b)
     df <- data.frame(probs, vaf = second.update.vaf, check.names = FALSE)
     names(df)[seq_along(a)] <- paste0("prob.", seq_along(a))
     df <- beta_reassign(df)
@@ -851,7 +899,7 @@ run_normal <- function(ctx, p_thre) {
   mean.a.b <- a / (a + b)
   upper_clonal_vaf <- min(mean.a.b)
   approx_vaf_index <- which.min(mean.a.b)
-  probs <- sapply(seq_along(a), function(i) stats::dbeta(clonal.vaf, a[i], b[i]))
+  probs <- dbeta_matrix(clonal.vaf, a, b)
   df <- data.frame(probs, vaf = clonal.vaf, check.names = FALSE)
   names(df)[seq_along(a)] <- paste0("prob.", seq_along(a))
   df <- beta_reassign(df)
@@ -1046,7 +1094,7 @@ s_dataframe_update <- function(cell.list, p, vaf.t1, vaf_set, min.s.detect, ctx,
 
   inita <- ctx$depth * c(vaf.t1, result_vector)
   initb <- ctx$depth - inita
-  probs <- sapply(seq_along(inita), function(i) stats::dbeta(vaf_set, inita[i], initb[i]))
+  probs <- dbeta_matrix(vaf_set, inita, initb)
   df <- data.frame(prob = probs, vaf = vaf_set)
   df <- beta_reassign(df)
 
@@ -1193,7 +1241,7 @@ evaluate_all_s <- function(svalue.list, vaf.t1, p, ctx) {
 get_second_peak_ratio <- function(simu_vaf, vaf_list, cell_list, ctx, pick.ratio = 1) {
   inita <- ctx$depth * vaf_list
   initb <- ctx$depth - inita
-  probs <- sapply(seq_along(inita), function(i) stats::dbeta(simu_vaf, inita[i], initb[i]))
+  probs <- dbeta_matrix(simu_vaf, inita, initb)
   df <- data.frame(prob = probs, vaf = simu_vaf)
   df <- beta_reassign(df)
   df <- df[df$cluster > 1, , drop = FALSE]

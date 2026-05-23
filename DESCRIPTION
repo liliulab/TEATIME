@@ -1,6 +1,6 @@
 Package: TEATIME
 Title: Estimating EvolutionAry Events Through Single-Timepoint Sequencing
-Version: 2.4.0
+Version: 2.5.0
 Authors@R:
     person("Hai", "Chen", email = "HaiChen294@users.noreply.github.com", role = c("aut", "cre"))
 Description: Derives evolutionary parameters — mutation rate, selection coefficient,
@@ -18,7 +18,9 @@ Imports:
     strucchange (>= 1.5.3),
     likelihoodExplore (>= 0.1.0),
     RBesT (>= 1.6.6),
-    magrittr
+    magrittr,
+    Rcpp (>= 1.0.0)
+LinkingTo: Rcpp
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
