@@ -20,8 +20,8 @@ devtools::install_github("liliulab/TEATIME")
 
 TEATIME ships in two modes controlled by `fast_version`:
 
-- **Fast mode (`fast_version = TRUE`)** — C++ implementations of the hot inner kernels (Wilcoxon rank-sum p-value, `dbeta` matrix, beta-reassignment) plus vectorised binomial sampling, for roughly **5–7× faster per sample** than default. Deterministic at a given seed; matches default bit-identically on the deterministic majority of inputs.
-- **Default mode (`fast_version = FALSE`)** — the reference pipeline.
+- **Fast mode (`fast_version = TRUE`)** — roughly **5–7× faster per sample** than default.
+- **Default mode (`fast_version = FALSE`)** — the reference pipeline, may provide better estimation.
 
 ```r
 library(TEATIME)
@@ -121,7 +121,7 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `seed` | `123` | Random seed for reproducibility; set to `NA` to run estimators three times independently for stochastic robustness |
 | `debug` | `FALSE` | Enable debug mode |
 | `save_magos` | `FALSE` | `vcf` mode only: when `TRUE`, save the intermediate MAGOS clustering to `<output_folder>/<output_prefix>_MAGOS.rds`|
-| `fast_version` | `FALSE` | When `TRUE`, swap hot kernels for Rcpp (Wilcoxon, dbeta, beta-reassign) and vectorised rbinom for ~5–7× per-sample speed-up. |
+| `fast_version` | `FALSE` | When `TRUE`, vectorised for ~5–7× per-sample speed-up. |
 
 ---
 
