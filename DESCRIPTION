@@ -1,8 +1,8 @@
 Package: TEATIME
 Title: Estimating EvolutionAry Events Through Single-Timepoint Sequencing
-Version: 2.3.0
+Version: 2.4.0
 Authors@R:
-    person("Hai", "Chen", email = "hchen294@asu.edu", role = c("aut", "cre"))
+    person("Hai", "Chen", email = "HaiChen294@users.noreply.github.com", role = c("aut", "cre"))
 Description: Derives evolutionary parameters — mutation rate, selection coefficient,
     and subclone emergence timing — from cancer sequencing data by analysing the
     composition of variant allele frequency (VAF) clusters. Supports pluggable

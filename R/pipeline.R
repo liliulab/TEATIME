@@ -372,6 +372,12 @@ final_process <- function(data.rearrange, rbest_data, ctx) {
       dplyr::mutate(
         mupick_low_depth = determine_mupick(fitdiff, interdiff, fitdiff2, interdiff2, fitmu, intermu)
       )
+    # adjust_p reads `data$mupick` (the original/"low-depth" pick) at line 312:
+    #   data$mupick.choose <- ifelse(cond, data$mupick.new, data$mupick)
+    # When `data$mupick` is NULL and any element of `cond` is FALSE, R's ifelse
+    # errors "replacement has length zero". The rename mupick -> mupick_low_depth
+    # was incomplete; restore the column adjust_p expects.
+    data$mupick <- data$mupick_low_depth
 
     data <- adjust_p(data, ctx$magosp, ctx$beta)
     if (nrow(data) > 0) {
@@ -414,6 +420,12 @@ post_process <- function(fitness_result, rbest_result, ctx) {
   second.vaf <- ctx$second_cluster_vaf$normal
   main.vaf <- ctx$main_cluster_vaf
   vaf.all <- c(main.vaf, second.vaf)
+  # robust pick: when the candidate vector is empty (no Beta-mix component below
+  # close_05_vaf AND empty insert.vaf), assignments like
+  # `mean.a.b[which.min(abs(mean.a.b - X))]` evaluate to numeric(0) and crash on
+  # data.frame replacement. Return NA in that case (faithful to v1's intent --
+  # v1 has the same vulnerable pattern and just escaped the empty case by RNG luck).
+  pick_closest <- function(x, target) if (length(x) == 0) NA_real_ else x[which.min(abs(x - target))]
 
   m <- RBesT::automixfit(vaf.all, type = "beta", Nc = 2:10, thresh = 0, k = 6, Niter.max = 10000)
   a <- m["a", ]
@@ -431,18 +443,18 @@ post_process <- function(fitness_result, rbest_result, ctx) {
     data.rearrange$clonallen <- 2
   }
 
-  data.rearrange$minvaf <- min(mean.a.b)
-  data.rearrange$maxvaf <- max(mean.a.b)
-  data.rearrange$closevaf <- mean.a.b[which.min(abs(mean.a.b - 0.5))]
+  data.rearrange$minvaf <- if (length(mean.a.b) == 0) NA_real_ else min(mean.a.b)
+  data.rearrange$maxvaf <- if (length(mean.a.b) == 0) NA_real_ else max(mean.a.b)
+  data.rearrange$closevaf <- pick_closest(mean.a.b, 0.5)
 
   fitp <- data.rearrange$fitp
   if (!is.na(fitp)) {
     fit1 <- vaf_at_div(1, fitp, ctx)
-    data.rearrange$closefitvaf <- mean.a.b[which.min(abs(mean.a.b - fit1))]
-    data.rearrange$fitdiff <- abs(mean.a.b[which.min(abs(mean.a.b - fit1))] - fit1)
+    data.rearrange$closefitvaf <- pick_closest(mean.a.b, fit1)
+    data.rearrange$fitdiff <- abs(data.rearrange$closefitvaf - fit1)
     fit2 <- fitp / 2
-    data.rearrange$closefitvaf2 <- mean.a.b[which.min(abs(mean.a.b - fit2))]
-    data.rearrange$fitdiff2 <- abs(mean.a.b[which.min(abs(mean.a.b - fit2))] - fit2)
+    data.rearrange$closefitvaf2 <- pick_closest(mean.a.b, fit2)
+    data.rearrange$fitdiff2 <- abs(data.rearrange$closefitvaf2 - fit2)
     df <- beta_reassign(.vaf_prob_df(main.vaf, c(0.5, fit1, fit2), ctx$depth))
     data.rearrange$fit_len_diff <- data.rearrange$fitmu * data.rearrange$fitcell
     data.rearrange$fit_len_ratio <- (data.rearrange$fitmu * data.rearrange$fitcell) / nrow(df[df$cluster > 1, , drop = FALSE])
@@ -458,11 +470,11 @@ post_process <- function(fitness_result, rbest_result, ctx) {
   interp <- data.rearrange$interp
   if (!is.na(interp)) {
     inter1 <- vaf_at_div(1, interp, ctx)
-    data.rearrange$closeintervaf <- mean.a.b[which.min(abs(mean.a.b - inter1))]
-    data.rearrange$interdiff <- abs(mean.a.b[which.min(abs(mean.a.b - inter1))] - inter1)
+    data.rearrange$closeintervaf <- pick_closest(mean.a.b, inter1)
+    data.rearrange$interdiff <- abs(data.rearrange$closeintervaf - inter1)
     inter2 <- interp / 2
-    data.rearrange$closeintervaf2 <- mean.a.b[which.min(abs(mean.a.b - inter2))]
-    data.rearrange$interdiff2 <- abs(mean.a.b[which.min(abs(mean.a.b - inter2))] - inter2)
+    data.rearrange$closeintervaf2 <- pick_closest(mean.a.b, inter2)
+    data.rearrange$interdiff2 <- abs(data.rearrange$closeintervaf2 - inter2)
     df <- beta_reassign(.vaf_prob_df(main.vaf, c(0.5, inter1, inter2), ctx$depth))
     intermu <- data.rearrange$intermu
     data.rearrange$inter_len_diff <- intermu * data.rearrange$intercell
@@ -479,11 +491,11 @@ post_process <- function(fitness_result, rbest_result, ctx) {
   backp <- data.rearrange$backp
   if (!is.na(backp)) {
     bac1 <- vaf_at_div(1, backp, ctx)
-    data.rearrange$closebacvaf <- mean.a.b[which.min(abs(mean.a.b - bac1))]
-    data.rearrange$bacdiff <- abs(mean.a.b[which.min(abs(mean.a.b - bac1))] - bac1)
+    data.rearrange$closebacvaf <- pick_closest(mean.a.b, bac1)
+    data.rearrange$bacdiff <- abs(data.rearrange$closebacvaf - bac1)
     bac2 <- (1 - backp) / (2 * exp(log(2) * ctx$beta * 1))
-    data.rearrange$closebacvaf2 <- mean.a.b[which.min(abs(mean.a.b - bac2))]
-    data.rearrange$bacdiff2 <- abs(mean.a.b[which.min(abs(mean.a.b - bac2))] - bac2)
+    data.rearrange$closebacvaf2 <- pick_closest(mean.a.b, bac2)
+    data.rearrange$bacdiff2 <- abs(data.rearrange$closebacvaf2 - bac2)
   } else {
     data.rearrange$closebacvaf <- NA
     data.rearrange$bacdiff <- NA
@@ -621,15 +633,25 @@ TEATIME.run <- function(
     if (!debug) return(suppressWarnings(expr))
     t0  <- proc.time()[["elapsed"]]
     cat(sprintf("[DEBUG] %-20s ... ", name))
-    result <- tryCatch(expr, error = function(e) {
-      cat(sprintf("FAILED (%.1fs)\n", proc.time()[["elapsed"]] - t0))
-      cat(sprintf("[DEBUG]   error  : %s\n", conditionMessage(e)))
-      if (!is.null(info_fn)) {
-        info <- tryCatch(info_fn(), error = function(e2) NULL)
-        if (!is.null(info)) cat(sprintf("[DEBUG]   context: %s\n", info))
-      }
-      stop(e)
-    })
+    result <- tryCatch(withCallingHandlers(expr,
+      error = function(e) {
+        cs <- sys.calls()
+        cat(sprintf("FAILED (%.1fs)\n", proc.time()[["elapsed"]] - t0))
+        cat(sprintf("[DEBUG]   error  : %s\n", conditionMessage(e)))
+        cat("[DEBUG]   trace  :\n")
+        for (i in seq_along(cs)) {
+          s <- paste(deparse(cs[[i]]), collapse = " ")
+          if (nchar(s) > 200) s <- paste0(substr(s, 1, 200), "...")
+          cat(sprintf("[DEBUG]    %2d: %s\n", i, s))
+        }
+      }),
+      error = function(e) {
+        if (!is.null(info_fn)) {
+          info <- tryCatch(info_fn(), error = function(e2) NULL)
+          if (!is.null(info)) cat(sprintf("[DEBUG]   context: %s\n", info))
+        }
+        stop(e)
+      })
     elapsed <- proc.time()[["elapsed"]] - t0
     info_str <- if (!is.null(info_fn)) tryCatch(info_fn(result), error = function(e) "") else ""
     cat(sprintf("OK (%.1fs)%s\n", elapsed, if (nzchar(info_str)) paste0("  |  ", info_str) else ""))
