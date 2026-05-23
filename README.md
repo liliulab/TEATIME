@@ -31,7 +31,7 @@ result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9,
 print(result)
 ```
 
-Cohort batch processing can layer `mclapply` / `parLapply` across samples on top of fast mode:
+Cohort batch processing can layer `mclapply`  across samples on top of fast mode:
 
 ```r
 parallel::mclapply(sample_files, function(f) {
