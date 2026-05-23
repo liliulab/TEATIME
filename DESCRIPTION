@@ -1,6 +1,6 @@
 Package: TEATIME
 Title: Estimating EvolutionAry Events Through Single-Timepoint Sequencing
-Version: 2.5.1
+Version: 2.5.2
 Authors@R:
     person("Hai", "Chen", email = "HaiChen294@users.noreply.github.com", role = c("aut", "cre"))
 Description: Derives evolutionary parameters — mutation rate, selection coefficient,

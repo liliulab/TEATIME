@@ -976,12 +976,12 @@ run_estimates <- function(ctx, p_thre = 0.01) {
   estimator_names <- c(preferred_order[preferred_order %in% estimator_names], setdiff(estimator_names, preferred_order))
   sample_name <- ctx$id
 
-  # Two modes. DEFAULT (ctx$fast_version FALSE): SEQUENTIAL in v1
-  # Run.para.estimate.maincluster order (estimator-outer fit,bac,normal /
-  # try-inner 1:3) in one continuous RNG stream -> seeded run faithful to
-  # v1. fast_version TRUE: dispatch the 9 independent units with mclapply
-  # (each fork its own RNG) -> ~2-3x faster, results in v1's distribution
-  # but NOT bit-identical (seeded approximation).
+  # All nine estimator slots (fit/bac/normal x try 1:3) run sequentially in a
+  # single RNG stream, both in default and fast mode. Fast mode picks up its
+  # speed from Rcpp inner kernels (Wilcoxon, dbeta, beta_reassign) and from
+  # vectorised rbinom, while keeping output deterministic at a given seed.
+  # Cohort-level parallelism (mclapply / parLapply across samples) layers on
+  # top without nested forks.
   jobs <- expand.grid(try_idx = 1:3, estimator = estimator_names,
                       KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
   n_jobs <- nrow(jobs)
@@ -990,19 +990,8 @@ run_estimates <- function(ctx, p_thre = 0.01) {
     res <- tryCatch(.ok(estimator_fn(ctx = ctx, p_thre = p_thre)), error = .err)
     if (res$status == "ok") res$value else NULL
   }
-  # `teatime.serial_fast` forces the sequential path even in fast mode (useful
-  # for Rprof, since mclapply children's profile is hidden from the parent).
-  serial_fast <- isTRUE(getOption("teatime.serial_fast", FALSE))
-  if (isTRUE(ctx$fast_version) && .Platform$OS.type == "unix" && n_jobs > 1L && !serial_fast) {
-    mc <- getOption("teatime.mc.cores", max(1L, parallel::detectCores(logical = TRUE) - 1L))
-    mc <- suppressWarnings(as.integer(mc))
-    if (is.na(mc) || mc < 1L) mc <- 1L
-    job_out <- parallel::mclapply(seq_len(n_jobs), run_one,
-                                  mc.cores = min(n_jobs, mc), mc.set.seed = TRUE)
-  } else {
-    job_out <- vector("list", n_jobs)
-    for (k in seq_len(n_jobs)) job_out[[k]] <- run_one(k)
-  }
+  job_out <- vector("list", n_jobs)
+  for (k in seq_len(n_jobs)) job_out[[k]] <- run_one(k)
 
   # Per-estimator aggregation: identical to the original sequential worker
   # body, fed the 3 try results in try order (1,2,3).

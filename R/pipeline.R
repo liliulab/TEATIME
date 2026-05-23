@@ -573,11 +573,14 @@ post_process <- function(fitness_result, rbest_result, ctx) {
 #' @param extra Named list of additional parameters passed to custom growth
 #'   models via `ctx$extra` (default `list()`). Ignored by the built-in
 #'   exponential model.
-#' @param fast_version Logical (default `FALSE`). `FALSE` runs the estimators
-#'   sequentially in a single RNG stream (a seeded run is faithful to the
-#'   reference implementation). `TRUE` dispatches the independent estimator
-#'   runs in parallel for ~2-3x speed; results are in the same distribution
-#'   but not bitwise-reproducible against the sequential mode.
+#' @param fast_version Logical (default `FALSE`). `FALSE` is the reference
+#'   pipeline. `TRUE` swaps the hot inner kernels for C++ implementations
+#'   (Wilcoxon p-value, dbeta matrix, beta-reassignment) and uses vectorised
+#'   rbinom in `slope_simu`, giving roughly a 5-7x per-sample speedup while
+#'   keeping the same single-stream RNG order as default. Output is identical
+#'   to default mode on the deterministic majority of inputs; small drift on
+#'   borderline samples can occur because the C++ kernels round at the last
+#'   floating-point bit.
 #'
 #' @return A one-row `data.frame` with columns:
 #'   \describe{
