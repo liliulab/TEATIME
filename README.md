@@ -20,8 +20,8 @@ devtools::install_github("liliulab/TEATIME")
 
 TEATIME ships in two modes controlled by `fast_version`:
 
-- **Fast mode (`fast_version = TRUE`)** — roughly **5–7× faster per sample** than default.
-- **Default mode (`fast_version = FALSE`)** — the reference pipeline, may provide better estimation.
+- **Default mode (`fast_version = FALSE`)** — the reference pipeline, potentially better estimation;
+- **Fast mode (`fast_version = TRUE`)** —   ~3–5× faster per sample.
 
 ```r
 library(TEATIME)
@@ -31,15 +31,6 @@ result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9,
 print(result)
 ```
 
-Cohort batch processing can layer `mclapply`  across samples on top of fast mode:
-
-```r
-parallel::mclapply(sample_files, function(f) {
-  inp <- readRDS(f)
-  TEATIME.run(inp, input_format = "magos", beta = 0.9,
-              depth = round(mean(inp$result$depth.1)), fast_version = TRUE)
-}, mc.cores = parallel::detectCores() - 1)
-```
 
 ---
 
@@ -121,7 +112,7 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `seed` | `123` | Random seed for reproducibility; set to `NA` to run estimators three times independently for stochastic robustness |
 | `debug` | `FALSE` | Enable debug mode |
 | `save_magos` | `FALSE` | `vcf` mode only: when `TRUE`, save the intermediate MAGOS clustering to `<output_folder>/<output_prefix>_MAGOS.rds`|
-| `fast_version` | `FALSE` | When `TRUE`, vectorised for ~5–7× per-sample speed-up. |
+| `fast_version` | `FALSE` | When `TRUE`, vectorised ~3–5× per-sample speed-up. |
 
 ---
 

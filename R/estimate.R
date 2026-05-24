@@ -62,48 +62,11 @@ calculate_mu <- function(data, ctx) {
     strucchange::breakpoints(cumsum ~ x, data = data, h = 3 / nrow(data))
   }, error = function(e) e)
 
-  # In fast mode the per-segment OLS fit (slope, AIC, BIC for `cumsum ~ x`) is
-  # computed via the one-step closed forms (slope = cov(x,y)/var(x); -2 log-lik
-  # for Gaussian OLS plus the corresponding AIC/BIC penalties), which keeps the
-  # inner loop free of the model.frame factoring overhead.
-  fast <- isTRUE(ctx$fast_version)
-
-  if (fast) {
-    fast_lm <- function(x, y) {
-      n <- length(x)
-      mx <- mean(x); my <- mean(y)
-      Sxx <- sum((x - mx) * (x - mx))
-      if (n < 2L || Sxx == 0) {
-        return(list(slope = NA_real_, aic = Inf, bic = Inf))
-      }
-      slope <- sum((x - mx) * (y - my)) / Sxx
-      intercept <- my - slope * mx
-      RSS <- sum((y - (intercept + slope * x))^2)
-      loglik <- -n / 2 * (log(2 * pi) + log(RSS / n) + 1)
-      list(slope = slope, aic = -2 * loglik + 2 * 3, bic = -2 * loglik + log(n) * 3)
-    }
-    if (!inherits(possible_error, "error")) {
-      mu_turn <- possible_error
-      bf <- strucchange::breakfactor(mu_turn)
-      levels_bf <- unique(bf)
-      n_seg <- length(levels_bf)
-      slopes      <- numeric(n_seg)
-      aic_values  <- numeric(n_seg)
-      bic_values  <- numeric(n_seg)
-      for (j in seq_len(n_seg)) {
-        mask <- bf == levels_bf[j]
-        fit <- fast_lm(data$x[mask], data$cumsum[mask])
-        slopes[j]     <- fit$slope * (-1) * ctx$beta * log(2)
-        aic_values[j] <- fit$aic
-        bic_values[j] <- fit$bic
-      }
-      return((slopes[which.min(aic_values)] + slopes[which.min(bic_values)]) / 2)
-    }
-    fit <- fast_lm(data$x, data$cumsum)
-    return(fit$slope * (-1) * ctx$beta * log(2))
-  }
-
-  # Default mode: byte-for-byte the reference implementation.
+  # Single reference path for both fast and default (Stage 2a's closed-form
+  # OLS was reverted -- it introduced sub-ulp FP drift vs stats::lm that
+  # propagated through the breakpoint regression. Now uses stats::lm + AIC +
+  # BIC exactly as in v2.4.0, so fast mode matches v2.4.0 fast within
+  # mc.set.seed RNG noise).
   if (!inherits(possible_error, "error")) {
     mu_turn <- possible_error
     bf <- strucchange::breakfactor(mu_turn)
@@ -177,6 +140,13 @@ slope_simu <- function(cell_div, mu, p, ctx, num_decimal = 3) {
       })
       all_simulated_vafs <- as.vector(t(all_simulated_vafs_list))
     }
+    # dbeta_matrix internally deduplicates `all_simulated_vafs` in fast mode
+    # (bit-identical output: same dbeta values, expanded back by match()).
+    # NOT pre-deduping here -- a pre-dedup that fed freq_override into
+    # beta_reassign changed the floating-point summation order in
+    # `rowsum(probs, group = vaf_index)` (count_i adds of the same value
+    # vs one multiplication by count_i), flipping rounding boundaries in
+    # alloc on K=3 samples (e.g. 24550 p 0.8070 -> 0.9569).
     probs <- dbeta_matrix(all_simulated_vafs, a, b)
     df <- data.frame(prob = probs, vaf = all_simulated_vafs)
     df <- beta_reassign(df)
@@ -976,12 +946,13 @@ run_estimates <- function(ctx, p_thre = 0.01) {
   estimator_names <- c(preferred_order[preferred_order %in% estimator_names], setdiff(estimator_names, preferred_order))
   sample_name <- ctx$id
 
-  # All nine estimator slots (fit/bac/normal x try 1:3) run sequentially in a
-  # single RNG stream, both in default and fast mode. Fast mode picks up its
-  # speed from Rcpp inner kernels (Wilcoxon, dbeta, beta_reassign) and from
-  # vectorised rbinom, while keeping output deterministic at a given seed.
-  # Cohort-level parallelism (mclapply / parLapply across samples) layers on
-  # top without nested forks.
+  # Nine estimator slots (fit/bac/normal x try 1:3). Default mode runs them
+  # sequentially in a single RNG stream (bit-identical to v2.4.0). Fast mode
+  # forks them via parallel::mclapply with mc.set.seed = TRUE -- same RNG
+  # contract as v2.4.0 fast (Mersenne-Twister + PID-derived per-child seed,
+  # non-deterministic across runs, but matches v2.4.0 fast envelope).
+  # Cohort-level parallel is OFF; the cohort runner loops samples
+  # sequentially so each sample uses up to n_jobs (9) cores internally.
   jobs <- expand.grid(try_idx = 1:3, estimator = estimator_names,
                       KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
   n_jobs <- nrow(jobs)
@@ -990,8 +961,20 @@ run_estimates <- function(ctx, p_thre = 0.01) {
     res <- tryCatch(.ok(estimator_fn(ctx = ctx, p_thre = p_thre)), error = .err)
     if (res$status == "ok") res$value else NULL
   }
-  job_out <- vector("list", n_jobs)
-  for (k in seq_len(n_jobs)) job_out[[k]] <- run_one(k)
+
+  fast    <- isTRUE(ctx$fast_version)
+  n_cores <- as.integer(getOption("teatime.internal_cores",
+                                  if (fast) min(n_jobs, parallel::detectCores()) else 1L))
+
+  job_out <- if (!fast || n_cores <= 1L) {
+    out <- vector("list", n_jobs)
+    for (k in seq_len(n_jobs)) out[[k]] <- run_one(k)
+    out
+  } else {
+    parallel::mclapply(seq_len(n_jobs), run_one,
+                       mc.cores = n_cores, mc.preschedule = FALSE,
+                       mc.set.seed = TRUE)
+  }
 
   # Per-estimator aggregation: identical to the original sequential worker
   # body, fed the 3 try results in try order (1,2,3).

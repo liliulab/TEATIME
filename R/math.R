@@ -40,12 +40,25 @@ collect_rows <- function(fn, items) {
 }
 
 # dbeta_matrix(x, a, b) returns the N x K matrix with column j =
-# stats::dbeta(x, a[j], b[j]). In fast mode the K columns are computed by a
-# single vectorised stats::dbeta call (recycled arguments); default mode keeps
-# the per-column sapply form. The two paths produce bit-identical output.
+# stats::dbeta(x, a[j], b[j]). In fast mode x is deduplicated before the
+# Rcpp dbeta call (depth is bounded so x rarely has more than ~depth+1
+# distinct values even when length(x) reaches 10^4); rows are then expanded
+# back to the original length(x) order. Output is bit-identical to the
+# non-dedup version. Default mode keeps the per-column sapply form.
 dbeta_matrix <- function(x, a, b) {
   if (isTRUE(getOption("teatime.fast_version", FALSE))) {
-    dbeta_matrix_cpp(as.numeric(x), as.numeric(a), as.numeric(b))
+    xn <- as.numeric(x)
+    nx <- length(xn)
+    ux <- unique(xn)
+    # Only dedup when it actually helps; below ~5x compression the match()
+    # overhead breaks even, so use the direct path.
+    if (nx >= 200L && length(ux) * 5L < nx) {
+      small <- dbeta_matrix_cpp(ux, as.numeric(a), as.numeric(b))
+      idx   <- match(xn, ux)
+      small[idx, , drop = FALSE]
+    } else {
+      dbeta_matrix_cpp(xn, as.numeric(a), as.numeric(b))
+    }
   } else {
     sapply(seq_along(a), function(i) stats::dbeta(x, a[i], b[i]))
   }
