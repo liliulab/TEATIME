@@ -20,8 +20,8 @@ devtools::install_github("liliulab/TEATIME")
 
 TEATIME ships in two modes controlled by `fast_version`:
 
-- **Fast mode (`fast_version = TRUE`)** — C++ implementations of the hot inner kernels (Wilcoxon rank-sum p-value, `dbeta` matrix, beta-reassignment) plus vectorised binomial sampling, for roughly **5–7× faster per sample** than default. Deterministic at a given seed; matches default bit-identically on the deterministic majority of inputs.
-- **Default mode (`fast_version = FALSE`)** — the reference pipeline.
+- **Default mode (`fast_version = FALSE`)** — the reference pipeline; sequential, fully reproducible.
+- **Fast mode (`fast_version = TRUE`)** — internally parallelises the 9 estimator jobs (3 estimators × 3 tries) via `parallel::mclapply`. Each sample uses up to 9 cores. ~3–5× faster per sample.
 
 ```r
 library(TEATIME)
@@ -31,14 +31,14 @@ result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9,
 print(result)
 ```
 
-Cohort batch processing can layer `mclapply` / `parLapply` across samples on top of fast mode:
+Because fast mode already uses internal parallelism, **iterate samples in a serial loop** (not a cohort-level `mclapply`, which would nest forks):
 
 ```r
-parallel::mclapply(sample_files, function(f) {
+for (f in sample_files) {
   inp <- readRDS(f)
   TEATIME.run(inp, input_format = "magos", beta = 0.9,
               depth = round(mean(inp$result$depth.1)), fast_version = TRUE)
-}, mc.cores = parallel::detectCores() - 1)
+}
 ```
 
 ---
@@ -121,7 +121,7 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `seed` | `123` | Random seed for reproducibility; set to `NA` to run estimators three times independently for stochastic robustness |
 | `debug` | `FALSE` | Enable debug mode |
 | `save_magos` | `FALSE` | `vcf` mode only: when `TRUE`, save the intermediate MAGOS clustering to `<output_folder>/<output_prefix>_MAGOS.rds`|
-| `fast_version` | `FALSE` | When `TRUE`, swap hot kernels for Rcpp (Wilcoxon, dbeta, beta-reassign) and vectorised rbinom for ~5–7× per-sample speed-up. |
+| `fast_version` | `FALSE` | When `TRUE`, vectorised inner kernels + internal 9-way `mclapply` over estimator jobs. ~3–5× per-sample speed-up. |
 
 ---
 
