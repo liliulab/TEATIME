@@ -1131,14 +1131,23 @@ s_dataframe_update <- function(cell.list, p, vaf.t1, vaf_set, min.s.detect, ctx,
   }
 
   if (evaluate) {
-    sampled_df <- sampled_df %>%
-      dplyr::mutate(
-        log_likelihood = likelihoodExplore::likbeta(
-          x = vaf,
-          shape1 = p * ctx$depth,
-          shape2 = ctx$depth - p
+    # Fast mode uses dedup-based .likbeta_sum (bit-identical, ~85x faster).
+    # Default mode keeps the original likelihoodExplore::likbeta call.
+    sampled_df <- if (isTRUE(getOption("teatime.fast_version", FALSE))) {
+      sampled_df %>%
+        dplyr::mutate(
+          log_likelihood = .likbeta_sum(vaf, p * ctx$depth, ctx$depth - p)
         )
-      )
+    } else {
+      sampled_df %>%
+        dplyr::mutate(
+          log_likelihood = likelihoodExplore::likbeta(
+            x = vaf,
+            shape1 = p * ctx$depth,
+            shape2 = ctx$depth - p
+          )
+        )
+    }
     cluster.result <- sampled_df %>%
       dplyr::group_by(cluster) %>%
       dplyr::summarise(

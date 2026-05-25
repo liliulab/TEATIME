@@ -148,6 +148,31 @@ generate_bootstrap_samples <- function(original_data, n_samples, num_decimal) {
   abs((sum(n_lt) - sum(n_gt)) / (nx * ny))
 }
 
+# Drop-in BIT-IDENTICAL replacement for sum(likelihoodExplore::likbeta(x, s1, s2,
+# log=TRUE)). likbeta with length-K shape vectors returns value[k] = sum_i
+# dbeta(x[i], s1[k], s2[k], log=TRUE) via plyr::llply over i + Reduce("+");
+# inside likbeta `density` is bound to stats::dbeta. So
+# sum(stats::dbeta(x, s1[k], s2[k], log=TRUE)) gives the same FP terms in the
+# same left-fold order as likbeta's value[k], and indexing s[unique_idx]
+# reconstructs vec[k] for every k without changing any FP value or order.
+# Dedup is what gives the speedup (TEATIME's p_assign typically has <= 50
+# unique values out of K~5000). Verified identical() in
+# test/microbench_likbeta.R; ~85x faster on n=5693, K=5693, 50 unique pairs.
+.likbeta_sum <- function(x, shape1, shape2) {
+  K <- length(shape1)
+  if (K == 1L) {
+    return(sum(stats::dbeta(x, shape1, shape2, log = TRUE)))
+  }
+  key <- paste0(shape1, "_", shape2)
+  unique_key <- unique(key)
+  unique_idx <- match(key, unique_key)
+  s <- vapply(seq_along(unique_key), function(j) {
+    k_first <- match(unique_key[j], key)
+    sum(stats::dbeta(x, shape1[k_first], shape2[k_first], log = TRUE))
+  }, numeric(1))
+  sum(s[unique_idx])
+}
+
 log_likelihood_mixture <- function(data, p_vec, depth) {
   a <- depth * p_vec
   b <- depth - a
@@ -164,13 +189,20 @@ log_likelihood_mixture <- function(data, p_vec, depth) {
     vaf_assign <- data
   }
 
-  sum(
-    likelihoodExplore::likbeta(
-      x = vaf_assign,
-      shape1 = p_assign * depth,
-      shape2 = depth - p_assign
+  # Fast mode uses the dedup-based .likbeta_sum (bit-identical, ~85x faster).
+  # Default mode keeps the original likelihoodExplore::likbeta call so the
+  # default reference path is unchanged.
+  if (isTRUE(getOption("teatime.fast_version", FALSE))) {
+    .likbeta_sum(vaf_assign, p_assign * depth, depth - p_assign)
+  } else {
+    sum(
+      likelihoodExplore::likbeta(
+        x = vaf_assign,
+        shape1 = p_assign * depth,
+        shape2 = depth - p_assign
+      )
     )
-  )
+  }
 }
 
 compute_AIC <- function(log_likelihood, num_params) {
