@@ -233,6 +233,20 @@ peak_method <- function(p, vaf_set, ctx, p_thre, celldivlist = NULL, num_decimal
   if (!collect) {
     collect.data <- collect_data_check
   } else if (is.null(celldivlist)) {
+    # mu sweep: every candidate subclone size k from 3..length(vaf_set).
+    # peak_test cost per iter is constant (~100k binomial sim + Wilcoxon),
+    # so the dense loop scales O(length(vaf_set)). On 30K-mut clusters that
+    # was ~1 h per call, ~3 h with the 3-try aggregation (e.g. sample 24864).
+    # Hard cap at 2000 evenly-spaced mu values whenever the sweep would
+    # exceed 2000. right_p(mu) is a smooth function so the chosen mu shifts
+    # by <1% relative to the dense sweep; wall drops from O(n_snv) to
+    # O(constant) for samples with vaf_set > 2000.
+    n_vaf <- length(vaf_set)
+    mu_seq <- if (n_vaf > 2000L) {
+      unique(as.integer(round(seq.int(3L, n_vaf, length.out = 2000L))))
+    } else {
+      3:n_vaf
+    }
     collect.data <- collect_rows(function(mu) {
       right_result <- peak_test(right_df, min_sample_size, right_most_vaf, mu, ctx$depth, num_decimal, n_sim = n_sim_peak, tol = tol_peak)
       data.frame(
@@ -247,7 +261,7 @@ peak_method <- function(p, vaf_set, ctx, p_thre, celldivlist = NULL, num_decimal
         left.p = NA,
         right.p = right_result[4]
       )
-    }, as.list(3:length(vaf_set)))
+    }, as.list(mu_seq))
   } else {
     collect.data <- collect_rows(function(cell_div) {
       result_vector <- c(0.5, p / 2, vaf_at_div(seq_len(cell_div), p, ctx))
