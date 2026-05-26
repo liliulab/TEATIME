@@ -433,7 +433,9 @@ function (vafs, depths)
         log = T), dbeta(vafs[vafs == 0.001], shape1 = s1, shape2 = s2, 
         log = T))
     v <- sum((vafs - vaf)^2)/length(vafs)
-    v <- sqrt(v)
+    if (!isTRUE(getOption("teatime.magos_v1", FALSE))) {
+      v <- sqrt(v)
+    }
     range <- max(vafs) - min(vafs)
     v <- ifelse(v < 0.00050000000000000001, 0.00050000000000000001, 
         v)
@@ -475,13 +477,15 @@ function (efrq, edep.vec, num, n = 1000)
     return(list(exp.vat = (expt.var), depths = depth.keep, vafs = vafs))
 }
 mag.exp.var.v3 <-
-function (efrq.vec, edep.vec, num, n = 1000, type = "M") 
+function (efrq.vec, edep.vec, num, n = 1000, type = "M")
 {
+    .v1 <- isTRUE(getOption("teatime.magos_v1", FALSE))
+    if (.v1) n <- 500L
     expt.var <- c()
     depth.keep <- c()
     vafs <- c()
-    a <- quantile(edep.vec, 0.050000000000000003)
-    b <- quantile(edep.vec, 0.94999999999999996)
+    a <- if (.v1) quantile(edep.vec, 0.1)  else quantile(edep.vec, 0.050000000000000003)
+    b <- if (.v1) quantile(edep.vec, 0.9)  else quantile(edep.vec, 0.94999999999999996)
     lowerf.1 <- quantile(efrq.vec, 0.14999999999999999)
     higherf.1 <- quantile(efrq.vec, 0.84999999999999998)
     if (length(edep.vec) > 5) {
