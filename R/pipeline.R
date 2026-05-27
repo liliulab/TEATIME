@@ -620,6 +620,18 @@ TEATIME.run <- function(
   save_magos = FALSE,
   fast_version = FALSE
 ) {
+  # Default mode (fast_version = FALSE) dispatches to the embedded af3e64d v1
+  # source so the output is bit-identical to the v1 release. Fast mode keeps
+  # the v2 modular pipeline (registry / Rcpp / mclapply). The fork is taken
+  # only for input_format == "vcf", which is v1's only accepted input shape.
+  if (!isTRUE(fast_version) && identical(input_format, "vcf")) {
+    return(.run_v1_default(
+      input = input, beta = beta, depth = depth, p_thre = p_thre,
+      output_folder = output_folder, output_prefix = output_prefix,
+      id = id, write_final = write_final, seed = seed, debug = debug
+    ))
+  }
+
   # Single switch read by the inner speedup paths (Rcpp Wilcoxon, vectorised
   # beta_reassign, get_slope cache in slope_method). When `fast_version = TRUE`
   # these use their accelerated implementations; otherwise every inner function
