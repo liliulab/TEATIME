@@ -326,7 +326,7 @@ adjust_p <- function(data, magosp, beta, cut = 0.3) {
   data$picktend <- ((log(data$pickp) - log(1 - data$pickp)) / (log(2) * beta) + (1 + data$picks) * data$pickt1) / data$picks
   data$picktend <- ifelse(data$picktend > 0, data$picktend, NA)
 
-  valid_idx <- which(data$picktend > data$pickt1 & data$picktend >= 1 & data$picktend <= 1000)
+  valid_idx <- which(data$picktend >= data$pickt1 & data$picktend >= 1 & data$picktend <= 1000)
   invalid_idx <- setdiff(seq_len(nrow(data)), valid_idx)
   data[invalid_idx, c("picks", "mupick", "pickp", "pickt1", "picktend")] <- NA
   data
@@ -506,16 +506,16 @@ post_process <- function(fitness_result, rbest_result, ctx) {
   inter_sample <- rbest_result$samplename[which(rbest_result$len_adj > 1)]
   missample <- rbest_result$samplename[which(rbest_result$len_adj == 1)]
 
-  fit_sum <- sum(data.rearrange[c("fitdiff", "fitdiff2")], na.rm = TRUE)
-  if (any(is.na(data.rearrange[c("fitdiff", "fitdiff2")]))) {
+  fit_sum <- sum(data.rearrange[c("fitdiff2", "fitdiff2")], na.rm = TRUE)
+  if (any(is.na(data.rearrange[c("fitdiff2", "fitdiff2")]))) {
     fit_sum <- Inf
   }
-  inter_sum <- sum(data.rearrange[c("interdiff", "interdiff2")], na.rm = TRUE)
-  if (any(is.na(data.rearrange[c("interdiff", "interdiff2")]))) {
+  inter_sum <- sum(data.rearrange[c("interdiff2", "interdiff2")], na.rm = TRUE)
+  if (any(is.na(data.rearrange[c("interdiff2", "interdiff2")]))) {
     inter_sum <- Inf
   }
-  bac_sum <- sum(data.rearrange[c("bacdiff", "bacdiff2")], na.rm = TRUE)
-  if (any(is.na(data.rearrange[c("bacdiff", "bacdiff2")]))) {
+  bac_sum <- sum(data.rearrange[c("bacdiff2", "bacdiff2")], na.rm = TRUE)
+  if (any(is.na(data.rearrange[c("bacdiff2", "bacdiff2")]))) {
     bac_sum <- Inf
   }
 
@@ -630,10 +630,10 @@ TEATIME.run <- function(
 
   if (!is.na(seed)) {
     set.seed(seed)
-    if (input_format != "vcf") {
-      seed <- seed + 1
-      set.seed(seed)
-    }
+    # v1 (af3e64d TEATIME.r:3183-3186): always advance the seed once before
+    # the prepare-data step, regardless of input format. Matches v1 RNG path.
+    seed <- seed + 1
+    set.seed(seed)
   }
 
   # When debug = FALSE, silence the noisy "max(empty)" / "ties in p-value"

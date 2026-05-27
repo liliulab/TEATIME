@@ -206,7 +206,8 @@ function (mag.output)
     var.sim.zero <- var.sim.zero$exp.vat
     m <- mean(var.sim.zero, na.rm = T) + 9.9999999999999995e-07
     vv <- sd(var.sim.zero, na.rm = T)
-    if (var(mag.output$vaf.sorted$vaf.1) < m + 3 * vv) {
+    # v1 logic: 2.5*vv threshold (tighter than upstream 3*vv)
+    if (var(mag.output$vaf.sorted$vaf.1) < m + 2.5 * vv) {
         flag <- TRUE
         print("Only one clone detected")
         str <- var.mean[var.mean$step == i, ]
@@ -321,6 +322,9 @@ function (mag.output)
     }
     t.1 = cbind(unique(t$colors), t.1)
     colnames(t.1)[1] = "colors"
+    # v1 (af3e64d MAGOS.R:1456): per-cluster mean used as pbeta tail switch
+    t_means = t %>% select(contains(c("vaf", "color"))) %>%
+        group_by(colors) %>% summarise_all(mean)
     i = 1
     prob.all = c()
     for (i in 1:nrow(t)) {
@@ -330,12 +334,18 @@ function (mag.output)
             probs = c()
             prob = c()
             for (ii in unique(t$colors)) {
-                prob = c(prob, dbeta(vf[, j], shape1 = t.1[t.1[, 
-                  1] == ii, 1 + (2 * j - 1)], shape2 = t.1[t.1[, 
-                  1] == ii, 1 + 2 * j]))
+                # v1 (af3e64d MAGOS.R:1470-1481): two-tailed pbeta keyed by
+                # whether v lies below or above that cluster's mean.
+                v = vf[, j]
+                shape1 = t.1[t.1[, 1] == ii, 1 + (2 * j - 1)]
+                shape2 = t.1[t.1[, 1] == ii, 1 + 2 * j]
+                clust_mean = t_means[t_means$colors == ii, j + 1] %>% pull()
+                prob_flag = ifelse(v < clust_mean, TRUE, FALSE)
+                pp = pbeta(v, shape1, shape2, lower.tail = prob_flag)
+                prob = c(prob, round(pp, 3))
             }
             prob.s = rbind(prob.s, prob)
-            prob.s = round(apply(prob.s, 2, min), 2)
+            prob.s = apply(prob.s, 2, min)
         }
         prob.all = rbind(prob.all, prob.s)
     }
@@ -433,9 +443,7 @@ function (vafs, depths)
         log = T), dbeta(vafs[vafs == 0.001], shape1 = s1, shape2 = s2, 
         log = T))
     v <- sum((vafs - vaf)^2)/length(vafs)
-    if (!isTRUE(getOption("teatime.magos_v1", FALSE))) {
-      v <- sqrt(v)
-    }
+    # v1 logic: do not apply sqrt(v); keep variance as-is.
     range <- max(vafs) - min(vafs)
     v <- ifelse(v < 0.00050000000000000001, 0.00050000000000000001, 
         v)
@@ -477,15 +485,14 @@ function (efrq, edep.vec, num, n = 1000)
     return(list(exp.vat = (expt.var), depths = depth.keep, vafs = vafs))
 }
 mag.exp.var.v3 <-
-function (efrq.vec, edep.vec, num, n = 1000, type = "M")
+function (efrq.vec, edep.vec, num, n = 500, type = "M")
 {
-    .v1 <- isTRUE(getOption("teatime.magos_v1", FALSE))
-    if (.v1) n <- 500L
+    # v1 logic: n=500, quantile 0.1/0.9
     expt.var <- c()
     depth.keep <- c()
     vafs <- c()
-    a <- if (.v1) quantile(edep.vec, 0.1)  else quantile(edep.vec, 0.050000000000000003)
-    b <- if (.v1) quantile(edep.vec, 0.9)  else quantile(edep.vec, 0.94999999999999996)
+    a <- quantile(edep.vec, 0.1)
+    b <- quantile(edep.vec, 0.9)
     lowerf.1 <- quantile(efrq.vec, 0.14999999999999999)
     higherf.1 <- quantile(efrq.vec, 0.84999999999999998)
     if (length(edep.vec) > 5) {
@@ -502,8 +509,9 @@ function (efrq.vec, edep.vec, num, n = 1000, type = "M")
         efrq.vec <- c(mean(efrq.vec), mean(efrq.vec))
     }
     for (i in 1:n) {
-        edep <- sample(edep.vec, 1, replace = T)
-        efrq <- mean(efrq.vec)
+        # v1 (af3e64d MAGOS.R:150-152): edep is the mean; efrq is sampled
+        edep <- mean(edep.vec)
+        efrq <- sample(efrq.vec, 1, replace = T)
         s1 <- efrq * edep
         s2 <- (1 - efrq) * edep
         x <- rbeta(num, shape1 = s1, shape2 = s2)
@@ -970,10 +978,12 @@ function (input.data, fold = F)
     if (purity > 1 & fold == F) {
         purity = "There are clusters with frequency higher than 0.5- consider folding."
     }
+    # v1 logic: iterative refold up to 50 times until no cluster meanVAF > 0.5
+    k <- 0
     if (fold == T & sum(sum1$meanVAF > 0.5) > 0) {
         fold.colors <- sum1$colors[sum1$meanVAF > 0.5]
         data.folded <- temp
-        data.folded$vaf.1[data.folded$colors %in% fold.colors] <- 1 - 
+        data.folded$vaf.1[data.folded$colors %in% fold.colors] <- 1 -
             data.folded$vaf.1[data.folded$colors %in% fold.colors]
         data.prep.fold <- data.prep
         data.prep.fold$vafs$vaf.1 <- data.folded$vaf.1
@@ -982,6 +992,23 @@ function (input.data, fold = F)
         temp <- merge(cut$final.data, data.prep$depths, by = "ID")
         sum2 <- temp %>% group_by(colors) %>% summarize(meanVAF = mean(vaf.1))
         purity <- 2 * max(sum2$meanVAF)
+        k <- k + 1
+    }
+    if (k > 0) {
+        while (fold == T & sum(sum2$meanVAF > 0.5) > 0 & k <= 50) {
+            fold.colors <- sum2$colors[sum2$meanVAF > 0.5]
+            data.folded <- temp
+            data.folded$vaf.1[data.folded$colors %in% fold.colors] <- 1 -
+                data.folded$vaf.1[data.folded$colors %in% fold.colors]
+            data.prep.fold <- data.prep
+            data.prep.fold$vafs$vaf.1 <- data.folded$vaf.1
+            mag <- mag.single(data.prep.fold)
+            cut <- cut.off.single(mag)
+            temp <- merge(cut$final.data, data.prep$depths, by = "ID")
+            sum2 <- temp %>% group_by(colors) %>% summarize(meanVAF = mean(vaf.1))
+            purity <- 2 * max(sum2$meanVAF)
+            k <- k + 1
+        }
     }
     temp <- temp[, c(2, 4, 3, 1)]
     res <- list(mag = mag, cut = cut, results = temp, fold = fold, 

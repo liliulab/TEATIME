@@ -394,7 +394,7 @@ mu_find_small <- function(vaf_set, p, ctx) {
   data.frame(mu_est = means_to_test, p_value = test_results, wx_p = test_results2)
 }
 
-mu_estimation_small <- function(data, p, ctx, p_thre, num_decimal = 3, ...) {
+mu_estimation_small <- function(overlap, p, ctx, p_thre, num_decimal = 3, ...) {
   dots <- list(...)
   n_wilcox <- dots$n_wilcox %||% 50
   vaf_set <- ctx$main_cluster_vaf
@@ -402,18 +402,18 @@ mu_estimation_small <- function(data, p, ctx, p_thre, num_decimal = 3, ...) {
   df <- beta_reassign(.vaf_prob_df(vaf_set, result_vector, ctx$depth))
   result_df <- mu_find_small(df[df$cluster >= 2, "vaf"], p, ctx)
   mu_small_selection <- result_df[result_df$p_value > 0.05 & result_df$wx_p > 0.05, , drop = FALSE]
-  data$mu_est <- data$mu_real
-  top_pick <- as.data.frame(compare_real_simu_peak(data, p, vaf_set, ctx, num_decimal, n_wilcox = n_wilcox))
-  data$loglike <- top_pick$V2
-  data$aic <- top_pick$V3
-  data$bic <- top_pick$V4
+  overlap$mu_est <- overlap$mu_real
+  top_pick <- as.data.frame(compare_real_simu_peak(overlap, p, vaf_set, ctx, num_decimal, n_wilcox = n_wilcox))
+  overlap$loglike <- top_pick$V2
+  overlap$aic <- top_pick$V3
+  overlap$bic <- top_pick$V4
 
-  pick.cell.div <- data$cell.div
-  pick.mu <- data$mu_real
-  z_score <- data$z_score
-  pick.log <- data$loglike
-  pick.bic <- data$bic
-  pick.aic <- data$aic
+  pick.cell.div <- overlap$cell.div
+  pick.mu <- overlap$mu_real
+  z_score <- overlap$z_score
+  pick.log <- overlap$loglike
+  pick.bic <- overlap$bic
+  pick.aic <- overlap$aic
 
   if (nrow(mu_small_selection) > 0) {
     num_df <- length(df[df$cluster >= 2, "vaf"])
@@ -425,6 +425,9 @@ mu_estimation_small <- function(data, p, ctx, p_thre, num_decimal = 3, ...) {
     mu_small_selection$bic <- small_mu_pick$V4
     mu_small_selection <- mu_small_selection[which(mu_small_selection$bic == min(mu_small_selection$bic)), , drop = FALSE]
 
+    # v1-faithful: `data` here resolves to base-R utils::data (a closure),
+    # so `data$bic` errors and the iteration is dropped by the upstream
+    # tryCatch -- matching v1's dead small-mu branch (TEATIME.r:848).
     if (mu_small_selection$bic < min(data$bic) * 0.5) {
       pick.cell.div <- round(length(df[df$cluster >= 2, "vaf"]) / mu_small_selection$mu_est)
       pick.mu <- mu_small_selection$mu_est
