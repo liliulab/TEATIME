@@ -420,11 +420,10 @@ post_process <- function(fitness_result, rbest_result, ctx) {
   second.vaf <- ctx$second_cluster_vaf$normal
   main.vaf <- ctx$main_cluster_vaf
   vaf.all <- c(main.vaf, second.vaf)
-  # robust pick: when the candidate vector is empty (no Beta-mix component below
+  # Robust pick: when the candidate vector is empty (no Beta-mix component below
   # close_05_vaf AND empty insert.vaf), assignments like
   # `mean.a.b[which.min(abs(mean.a.b - X))]` evaluate to numeric(0) and crash on
-  # data.frame replacement. Return NA in that case (faithful to v1's intent --
-  # v1 has the same vulnerable pattern and just escaped the empty case by RNG luck).
+  # data.frame replacement. Return NA in that case.
   pick_closest <- function(x, target) if (length(x) == 0) NA_real_ else x[which.min(abs(x - target))]
 
   m <- RBesT::automixfit(vaf.all, type = "beta", Nc = 2:10, thresh = 0, k = 6, Niter.max = 10000)
@@ -620,12 +619,10 @@ TEATIME.run <- function(
   save_magos = FALSE,
   fast_version = FALSE
 ) {
-  # Default mode (fast_version = FALSE) dispatches to the embedded af3e64d v1
-  # source so the output is bit-identical to the v1 release. Fast mode keeps
-  # the v2 modular pipeline (registry / Rcpp / mclapply). The fork is taken
-  # only for input_format == "vcf", which is v1's only accepted input shape.
+  # Default mode dispatches to the bundled reference implementation; fast mode
+  # uses the in-package modular pipeline. Dispatch is only taken for vcf input.
   if (!isTRUE(fast_version) && identical(input_format, "vcf")) {
-    return(.run_v1_default(
+    return(.run_default_dispatch(
       input = input, beta = beta, depth = depth, p_thre = p_thre,
       output_folder = output_folder, output_prefix = output_prefix,
       id = id, write_final = write_final, seed = seed, debug = debug
@@ -633,17 +630,13 @@ TEATIME.run <- function(
   }
 
   # Single switch read by the inner speedup paths (Rcpp Wilcoxon, vectorised
-  # beta_reassign, get_slope cache in slope_method). When `fast_version = TRUE`
-  # these use their accelerated implementations; otherwise every inner function
-  # behaves exactly as in the reference release.
+  # beta_reassign, get_slope cache in slope_method).
   prev_fast_opt <- getOption("teatime.fast_version", FALSE)
   options(teatime.fast_version = isTRUE(fast_version))
   on.exit(options(teatime.fast_version = prev_fast_opt), add = TRUE)
 
   if (!is.na(seed)) {
     set.seed(seed)
-    # v1 (af3e64d TEATIME.r:3183-3186): always advance the seed once before
-    # the prepare-data step, regardless of input format. Matches v1 RNG path.
     seed <- seed + 1
     set.seed(seed)
   }

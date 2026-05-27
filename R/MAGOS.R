@@ -206,7 +206,6 @@ function (mag.output)
     var.sim.zero <- var.sim.zero$exp.vat
     m <- mean(var.sim.zero, na.rm = T) + 9.9999999999999995e-07
     vv <- sd(var.sim.zero, na.rm = T)
-    # v1 logic: 2.5*vv threshold (tighter than upstream 3*vv)
     if (var(mag.output$vaf.sorted$vaf.1) < m + 2.5 * vv) {
         flag <- TRUE
         print("Only one clone detected")
@@ -322,7 +321,6 @@ function (mag.output)
     }
     t.1 = cbind(unique(t$colors), t.1)
     colnames(t.1)[1] = "colors"
-    # v1 (af3e64d MAGOS.R:1456): per-cluster mean used as pbeta tail switch
     t_means = t %>% select(contains(c("vaf", "color"))) %>%
         group_by(colors) %>% summarise_all(mean)
     i = 1
@@ -334,8 +332,6 @@ function (mag.output)
             probs = c()
             prob = c()
             for (ii in unique(t$colors)) {
-                # v1 (af3e64d MAGOS.R:1470-1481): two-tailed pbeta keyed by
-                # whether v lies below or above that cluster's mean.
                 v = vf[, j]
                 shape1 = t.1[t.1[, 1] == ii, 1 + (2 * j - 1)]
                 shape2 = t.1[t.1[, 1] == ii, 1 + 2 * j]
@@ -443,7 +439,6 @@ function (vafs, depths)
         log = T), dbeta(vafs[vafs == 0.001], shape1 = s1, shape2 = s2, 
         log = T))
     v <- sum((vafs - vaf)^2)/length(vafs)
-    # v1 logic: do not apply sqrt(v); keep variance as-is.
     range <- max(vafs) - min(vafs)
     v <- ifelse(v < 0.00050000000000000001, 0.00050000000000000001, 
         v)
@@ -487,7 +482,6 @@ function (efrq, edep.vec, num, n = 1000)
 mag.exp.var.v3 <-
 function (efrq.vec, edep.vec, num, n = 500, type = "M")
 {
-    # v1 logic: n=500, quantile 0.1/0.9
     expt.var <- c()
     depth.keep <- c()
     vafs <- c()
@@ -509,7 +503,6 @@ function (efrq.vec, edep.vec, num, n = 500, type = "M")
         efrq.vec <- c(mean(efrq.vec), mean(efrq.vec))
     }
     for (i in 1:n) {
-        # v1 (af3e64d MAGOS.R:150-152): edep is the mean; efrq is sampled
         edep <- mean(edep.vec)
         efrq <- sample(efrq.vec, 1, replace = T)
         s1 <- efrq * edep
@@ -978,7 +971,6 @@ function (input.data, fold = F)
     if (purity > 1 & fold == F) {
         purity = "There are clusters with frequency higher than 0.5- consider folding."
     }
-    # v1 logic: iterative refold up to 50 times until no cluster meanVAF > 0.5
     k <- 0
     if (fold == T & sum(sum1$meanVAF > 0.5) > 0) {
         fold.colors <- sum1$colors[sum1$meanVAF > 0.5]

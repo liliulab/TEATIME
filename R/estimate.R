@@ -425,9 +425,6 @@ mu_estimation_small <- function(overlap, p, ctx, p_thre, num_decimal = 3, ...) {
     mu_small_selection$bic <- small_mu_pick$V4
     mu_small_selection <- mu_small_selection[which(mu_small_selection$bic == min(mu_small_selection$bic)), , drop = FALSE]
 
-    # v1-faithful: `data` here resolves to base-R utils::data (a closure),
-    # so `data$bic` errors and the iteration is dropped by the upstream
-    # tryCatch -- matching v1's dead small-mu branch (TEATIME.r:848).
     if (mu_small_selection$bic < min(data$bic) * 0.5) {
       pick.cell.div <- round(length(df[df$cluster >= 2, "vaf"]) / mu_small_selection$mu_est)
       pick.mu <- mu_small_selection$mu_est
