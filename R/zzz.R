@@ -25,17 +25,16 @@
   env
 }
 
-# Default-mode dispatcher: translate v2's TEATIME.run args to the v1 reference
-# signature, invoke v1's TEATIME.run, and read its .final.txt back as the
-# result. v1 writes name/mu/s/t1/tend/p; v2 default mode returns those same
-# columns so downstream consumers see exactly v1's output.
+# Default-mode dispatcher: run v1's TEATIME.run into a scratch tempdir so all
+# the .fit / .bac / .normal / .all intermediates land there and get cleaned up.
+# Only the harvested v2-schema (name, mu, s, emergence_time, tau, p) is written
+# at the user's output_folder when write_final = TRUE.
 .run_v1_default <- function(input, beta, depth, p_thre,
                             output_folder, output_prefix,
                             id, write_final, seed, debug) {
   v1 <- .load_v1_ref()
-  if (!dir.exists(output_folder)) {
-    dir.create(output_folder, showWarnings = FALSE, recursive = TRUE)
-  }
+  scratch <- tempfile("teatime_v1_scratch_"); dir.create(scratch, recursive = TRUE)
+  on.exit(unlink(scratch, recursive = TRUE, force = TRUE), add = TRUE)
   v1_seed <- if (is.na(seed)) NA else as.integer(seed)
   call_args <- list(
     input.file    = input,
@@ -43,11 +42,11 @@
     depth         = depth,
     p_thre        = p_thre,
     magos_object  = TRUE,
-    output.folder = output_folder,
+    output.folder = scratch,
     output.prefix = output_prefix,
     id            = id,
     steps         = 0:5,
-    write_final   = isTRUE(write_final),
+    write_final   = TRUE,         # always TRUE inside scratch; we re-emit below
     debug_mode    = isTRUE(debug),
     purity_set    = 0,
     seed          = v1_seed
@@ -59,36 +58,24 @@
       utils::capture.output(do.call(v1$TEATIME.run, call_args))
     ))
   }
-  final_path <- file.path(output_folder, paste0(output_prefix, ".final.txt"))
-  if (file.exists(final_path)) {
-    v1_df <- utils::read.table(final_path, header = TRUE, sep = "\t",
-                               stringsAsFactors = FALSE)
-    return(.v1_to_v2_schema(v1_df, final_path, write_final = isTRUE(write_final)))
-  }
-  data.frame(name = id, mu = NA_real_, s = NA_real_,
-             emergence_time = NA_real_, tau = NA_real_, p = NA_real_,
-             stringsAsFactors = FALSE)
-}
 
-# Translate v1's (name, mu, s, t1, tend, p) to v2's
-# (name, mu, s, emergence_time, tau, p). Mapping (from pipeline.R post_process):
-#   emergence_time = t1
-#   tau            = tend / t1
-# If write_final is TRUE, also rewrite .final.txt so downstream readers see the
-# v2 schema regardless of which mode produced the file.
-.v1_to_v2_schema <- function(v1_df, final_path, write_final) {
-  if (!all(c("t1", "tend") %in% names(v1_df))) return(v1_df)
-  v2_df <- data.frame(
-    name = v1_df$name,
-    mu = v1_df$mu,
-    s = v1_df$s,
-    emergence_time = v1_df$t1,
-    tau = ifelse(is.na(v1_df$t1) | v1_df$t1 == 0,
-                 NA_real_, v1_df$tend / v1_df$t1),
-    p = v1_df$p,
-    stringsAsFactors = FALSE
-  )
+  scratch_final <- file.path(scratch, paste0(output_prefix, ".final.txt"))
+  v1_df <- if (file.exists(scratch_final)) {
+    utils::read.table(scratch_final, header = TRUE, sep = "\t",
+                      stringsAsFactors = FALSE)
+  } else {
+    data.frame(name = id, mu = NA_real_, s = NA_real_,
+               t1 = NA_real_, tend = NA_real_, p = NA_real_,
+               stringsAsFactors = FALSE)
+  }
+
+  v2_df <- .v1_to_v2_schema(v1_df)
+
   if (isTRUE(write_final)) {
+    if (!dir.exists(output_folder)) {
+      dir.create(output_folder, showWarnings = FALSE, recursive = TRUE)
+    }
+    final_path <- file.path(output_folder, paste0(output_prefix, ".final.txt"))
     hdr <- paste0(
       "## name: sample ID | mu: mutation rate | s: selection coefficient | ",
       "emergence_time: emergence time of the subclone | ",
@@ -101,6 +88,24 @@
     }, error = function(e2) NULL)
   }
   v2_df
+}
+
+# Translate v1's (name, mu, s, t1, tend, p) to v2's
+# (name, mu, s, emergence_time, tau, p). Mapping (from pipeline.R post_process):
+#   emergence_time = t1
+#   tau            = tend / t1
+.v1_to_v2_schema <- function(v1_df) {
+  if (!all(c("t1", "tend") %in% names(v1_df))) return(v1_df)
+  data.frame(
+    name = v1_df$name,
+    mu = v1_df$mu,
+    s = v1_df$s,
+    emergence_time = v1_df$t1,
+    tau = ifelse(is.na(v1_df$t1) | v1_df$t1 == 0,
+                 NA_real_, v1_df$tend / v1_df$t1),
+    p = v1_df$p,
+    stringsAsFactors = FALSE
+  )
 }
 
 .onLoad <- function(libname, pkgname) {
