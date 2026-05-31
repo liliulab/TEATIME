@@ -22,7 +22,7 @@ TEATIME runs in three modes:
 
 - **Default** (`fast_version = FALSE`) — the reference pipeline.
 - **Fast** (`fast_version = TRUE`) —  ~6× faster per sample.
-- **Approximation** (`fast_version = TRUE` + `options(teatime.approx = TRUE)`) — a **deterministic**, faster mode.
+- **Approximation** (`fast_version = TRUE` + `options(teatime.approx = TRUE)`) — ~10x faster.
 ```r
 library(TEATIME)
 # input has 3 columns: REF, ALT, CN (per-mutation copy number)
