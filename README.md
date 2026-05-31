@@ -120,7 +120,7 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `seed` | `NA` | Random seed. Default `NA` = unseeded.|
 | `debug` | `FALSE` | Enable debug mode |
 | `save_magos` | `FALSE` | `vcf` mode only: when `TRUE`, save the intermediate MAGOS clustering to `<output_folder>/<output_prefix>_MAGOS.rds`|
-| `fast_version` | `FALSE` | Combine with `options(teatime.approx = TRUE)` for the nalytic approximation (fastest). |
+| `fast_version` | `FALSE` | Combine with `options(teatime.approx = TRUE)` for the analytic approximation (fastest). |
 
 ---
 
