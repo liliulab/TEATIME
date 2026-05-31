@@ -3,3 +3,7 @@
 .Rhistory
 .RData
 vignettes/MAGOS.rds
+
+# compiled objects / shared libs
+*.o
+*.so

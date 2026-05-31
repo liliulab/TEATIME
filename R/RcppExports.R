@@ -13,3 +13,15 @@ wilcox_test_p_asym <- function(x, y) {
     .Call(`_TEATIME_wilcox_test_p_asym`, x, y)
 }
 
+ks_stat_2s_cpp <- function(x, y) {
+    .Call(`_TEATIME_ks_stat_2s_cpp`, x, y)
+}
+
+ks_d_batch_cpp <- function(x, sims, ntry) {
+    .Call(`_TEATIME_ks_d_batch_cpp`, x, sims, ntry)
+}
+
+wilcox_p_batch_cpp <- function(x, sims, ntry) {
+    .Call(`_TEATIME_wilcox_p_batch_cpp`, x, sims, ntry)
+}
+

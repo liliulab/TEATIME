@@ -1,4 +1,0 @@
-## name: sample ID | mu: mutation rate | s: selection coefficient | emergence_time: emergence time of the subclone | tau: subclone expansion score | p: subclonal fraction
-
-name	mu	s	emergence_time	tau	p
-test	17.9	0.442154943051663	10	3.1240021518776	0.4062049

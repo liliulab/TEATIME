@@ -174,3 +174,172 @@ double wilcox_test_p_asym(Rcpp::NumericVector x, Rcpp::NumericVector y) {
   if (p > 1.0) p = 1.0;
   return p;
 }
+
+// ks_stat_2s_cpp -- two-sample Kolmogorov-Smirnov statistic D (two.sided),
+// bit-identical to stats::ks.test's internal computation:
+//
+//   w <- c(x, y)
+//   z <- cumsum(ifelse(order(w) <= n.x, 1/n.x, -1/n.y))
+//   if (ties) z <- z[c(which(diff(sort(w)) != 0), N)]   # collapse to run-ends
+//   D <- max(abs(z))
+//
+// The floating-point accumulation order is preserved exactly: elements are
+// visited in R's order(w) order (ascending value, ties broken by original
+// index, so x-origin elements -- indices 0..n.x-1 -- precede y-origin ones for
+// equal values). The running sum adds +1/n.x or -1/n.y one term at a time, and
+// |sum| is recorded only at the end of each distinct-value run (which is what
+// the tie-collapse selects; with no ties every position is its own run-end, so
+// max(abs(.)) over run-ends equals max(abs(z)) either way).
+//
+// The (cheap, scalar) asymptotic p-value is left to R's own stats::psmirnov so
+// it stays bit-identical without re-deriving C_pkolmogorov_two_limit here.
+//
+// [[Rcpp::export]]
+double ks_stat_2s_cpp(Rcpp::NumericVector x, Rcpp::NumericVector y) {
+  const int nx = x.size();
+  const int ny = y.size();
+  const int n  = nx + ny;
+  if (nx == 0 || ny == 0) return NA_REAL;
+
+  // Combined vector; original indices 0..nx-1 are x, nx..n-1 are y.
+  std::vector<double> v(n);
+  for (int i = 0; i < nx; ++i) v[i]      = x[i];
+  for (int j = 0; j < ny; ++j) v[nx + j] = y[j];
+
+  // order(w): ascending value, ties by ascending original index. Including the
+  // index as the tiebreak reproduces R's stable radix order (x before y).
+  std::vector<int> ord(n);
+  for (int i = 0; i < n; ++i) ord[i] = i;
+  std::sort(ord.begin(), ord.end(),
+            [&](int a, int b) { return v[a] < v[b] || (v[a] == v[b] && a < b); });
+
+  const double inc_x =  1.0 / nx;   // matches R's 1/n.x (double division)
+  const double inc_y = -1.0 / ny;   // matches R's -1/n.y
+
+  double s = 0.0;
+  double D = 0.0;
+  for (int k = 0; k < n; ++k) {
+    s += (ord[k] < nx) ? inc_x : inc_y;   // ord[k] < nx  <=>  order(w) <= n.x
+    if (k == n - 1 || v[ord[k + 1]] != v[ord[k]]) {   // end of a distinct-value run
+      const double as = std::fabs(s);
+      if (as > D) D = as;
+    }
+  }
+  return D;
+}
+
+// ks_d_batch_cpp -- the two-sample KS statistic D for many simulated sets that
+// share a FIXED first sample `x`. `sims` holds `ntry` consecutive segments,
+// each of length ny = length(sims)/ntry, playing the role of `y` in
+// ks_stat_2s_cpp. `x` is sorted once and reused; each segment is sorted and
+// merged against it (x-before-y on ties, matching c(x,y)'s original-index
+// order), accumulating the same +1/nx, -1/ny running sum and recording |sum|
+// at distinct-value run-ends. The per-try D is therefore bit-identical to
+// ks_stat_2s_cpp(x, segment); only the O(nx log nx) sort of x is amortised
+// across the ntry tries (the dominant cost in simulate_from_estimation's loop
+// when x = compare_set is large and fixed).
+//
+// [[Rcpp::export]]
+Rcpp::NumericVector ks_d_batch_cpp(Rcpp::NumericVector x, Rcpp::NumericVector sims, int ntry) {
+  const int nx = x.size();
+  const int total = sims.size();
+  if (nx == 0 || ntry <= 0 || total % ntry != 0) return Rcpp::NumericVector(ntry, NA_REAL);
+  const int ny = total / ntry;
+  Rcpp::NumericVector out(ntry);
+  if (ny == 0) { for (int t = 0; t < ntry; ++t) out[t] = NA_REAL; return out; }
+
+  std::vector<double> xs(x.begin(), x.end());
+  std::sort(xs.begin(), xs.end());
+  const double inc_x =  1.0 / nx;
+  const double inc_y = -1.0 / ny;
+
+  std::vector<double> ys(ny);
+  for (int t = 0; t < ntry; ++t) {
+    const int base = t * ny;
+    for (int j = 0; j < ny; ++j) ys[j] = sims[base + j];
+    std::sort(ys.begin(), ys.end());
+
+    double s = 0.0, D = 0.0;
+    int i = 0, j = 0;
+    while (i < nx || j < ny) {
+      // next value; ties take x first (x's original indices precede y's)
+      bool takeX;
+      if (i < nx && j < ny) takeX = !(ys[j] < xs[i]);   // xs<=ys -> x
+      else takeX = (i < nx);
+      const double cur = takeX ? xs[i] : ys[j];
+      if (takeX) { s += inc_x; ++i; } else { s += inc_y; ++j; }
+      bool hasNext = (i < nx || j < ny);
+      double nextval = 0.0;
+      if (hasNext) {
+        if (i < nx && j < ny)      nextval = std::min(xs[i], ys[j]);
+        else if (i < nx)           nextval = xs[i];
+        else                       nextval = ys[j];
+      }
+      if (!hasNext || nextval != cur) {
+        const double as = std::fabs(s);
+        if (as > D) D = as;
+      }
+    }
+    out[t] = D;
+  }
+  return out;
+}
+
+// wilcox_p_batch_cpp -- two-sided asymptotic Wilcoxon rank-sum p-value for many
+// simulated `y` sets that share a FIXED `x` (= compare_set). Mirrors
+// wilcox_test_p_asym (statistic = sum of ranks of x; tie-corrected variance;
+// continuity correction; 2*min(pnorm), capped at 1), but sorts x once and
+// merges each sorted segment, grouping ties to get average ranks from counts.
+// All the rank arithmetic is exact (half-integers, integer m^3 - m sums well
+// under 2^53 for these n), so the per-try p is bit-identical to
+// wilcox_test_p_asym(x, segment). Amortises x's sort across the ntry tries.
+//
+// [[Rcpp::export]]
+Rcpp::NumericVector wilcox_p_batch_cpp(Rcpp::NumericVector x, Rcpp::NumericVector sims, int ntry) {
+  const int nx = x.size();
+  const int total = sims.size();
+  if (nx == 0 || ntry <= 0 || total % ntry != 0) return Rcpp::NumericVector(ntry, NA_REAL);
+  const int ny = total / ntry;
+  const int n  = nx + ny;
+  Rcpp::NumericVector out(ntry);
+  if (ny == 0) { for (int t = 0; t < ntry; ++t) out[t] = NA_REAL; return out; }
+
+  std::vector<double> xs(x.begin(), x.end());
+  std::sort(xs.begin(), xs.end());
+  const double denom = static_cast<double>(n) * (n - 1.0);
+
+  std::vector<double> ys(ny);
+  for (int t = 0; t < ntry; ++t) {
+    const int base = t * ny;
+    for (int j = 0; j < ny; ++j) ys[j] = sims[base + j];
+    std::sort(ys.begin(), ys.end());
+
+    double sum_rx = 0.0, tie_sum = 0.0, cum = 0.0;   // cum = # ranked before group
+    int i = 0, j = 0;
+    while (i < nx || j < ny) {
+      double cur;
+      if (i < nx && j < ny) cur = std::min(xs[i], ys[j]);
+      else if (i < nx)      cur = xs[i];
+      else                  cur = ys[j];
+      double cx = 0.0, cy = 0.0;
+      while (i < nx && xs[i] == cur) { cx += 1.0; ++i; }
+      while (j < ny && ys[j] == cur) { cy += 1.0; ++j; }
+      const double m = cx + cy;
+      const double avg_rank = cum + (m + 1.0) / 2.0;
+      sum_rx  += cx * avg_rank;
+      tie_sum += m * m * m - m;
+      cum     += m;
+    }
+    const double statistic = sum_rx - static_cast<double>(nx) * (nx + 1.0) / 2.0;
+    const double sigma_sq  = (static_cast<double>(nx) * ny / 12.0) *
+                             ((nx + ny + 1.0) - tie_sum / denom);
+    if (!(sigma_sq > 0.0)) { out[t] = NA_REAL; continue; }
+    double z = statistic - static_cast<double>(nx) * ny / 2.0;
+    const double corr = (z > 0.0) ? 0.5 : ((z < 0.0) ? -0.5 : 0.0);
+    z = (z - corr) / std::sqrt(sigma_sq);
+    double p = 2.0 * std::min(R::pnorm(z, 0.0, 1.0, 1, 0), R::pnorm(z, 0.0, 1.0, 0, 0));
+    if (p > 1.0) p = 1.0;
+    out[t] = p;
+  }
+  return out;
+}

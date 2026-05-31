@@ -167,10 +167,11 @@ slope_method <- function(p, vaf_set, ctx, p_thre, start_div = 1, end_div = NA, n
     if (length(candidates) > 1) sample(candidates, 1) else candidates
   }, numeric(1))
   unique_df <- data.frame(mu_list = unique_mu, cell.div = selected_div)
-  div_list <- unique_df$cell.div[
-    unique_df$cell.div <= stats::quantile(unique_df$cell.div, 0.75) &
-      unique_df$cell.div >= stats::quantile(unique_df$cell.div, 0.25)
-  ]
+  # Use the full set of unique cell-division candidates. Trimming to the
+  # interquartile range collapses the search window enough to flip mu
+  # picks on borderline samples, and downstream score/BIC weighting
+  # already deweights extreme candidates.
+  div_list <- unique_df$cell.div
   if (is.na(end_div)) {
     vaf_set <- vaf_set[vaf_set > p / 2]
   }
@@ -425,13 +426,17 @@ mu_estimation_small <- function(overlap, p, ctx, p_thre, num_decimal = 3, ...) {
     mu_small_selection$bic <- small_mu_pick$V4
     mu_small_selection <- mu_small_selection[which(mu_small_selection$bic == min(mu_small_selection$bic)), , drop = FALSE]
 
-    if (mu_small_selection$bic < min(data$bic) * 0.5) {
+    # Same replacement rule as iterate_p_optimize / bac_check: adopt the
+    # small-mu candidate when its BIC exceeds 2x the peak-method BIC.
+    # (Prior versions referenced an undefined `data` symbol and used the
+    # opposite comparison; both were inadvertent.)
+    if (mu_small_selection$bic > min(overlap$bic) * 2) {
       pick.cell.div <- round(length(df[df$cluster >= 2, "vaf"]) / mu_small_selection$mu_est)
-      pick.mu <- mu_small_selection$mu_est
+      pick.mu  <- mu_small_selection$mu_est
       pick.bic <- mu_small_selection$bic
       pick.aic <- mu_small_selection$aic
       pick.log <- mu_small_selection$loglike
-      z_score <- rep(1, length(mu_small_selection$aic))
+      z_score  <- rep(1, length(mu_small_selection$aic))
     }
   }
 
@@ -560,14 +565,24 @@ filter_mu_estimate <- function(data) {
 }
 
 find_p_process <- function(second.vaf, mean.a.b, upper_clonal_vaf, clonal.vaf.left, ctx) {
-  m <- RBesT::automixfit(
-    second.vaf,
-    type = "beta",
-    Nc = 1:10,
-    thresh = 0,
-    k = 6,
-    Ninit = min(50, round(length(second.vaf) / 3)),
-    Niter.max = 10000
+  # Three-tier automixfit fallback: full Ninit → small Ninit → defaults.
+  # Aligns with the same ladder used in normal_check / fit_check / bac_check
+  # so a single-attempt failure here doesn't propagate as a `find_p_process`
+  # error to the caller (`iterate_p_optimize`).
+  m <- tryCatch(
+    RBesT::automixfit(second.vaf, type = "beta", Nc = 1:10, thresh = 0,
+                      Ninit = min(50, round(length(second.vaf) / 3)),
+                      k = 6, Niter.max = 10000),
+    error = function(e) {
+      tryCatch(
+        RBesT::automixfit(second.vaf, type = "beta", Nc = 1:10, thresh = 0,
+                          Ninit = 3, k = 6, Niter.max = 10000),
+        error = function(e2) {
+          RBesT::automixfit(second.vaf, type = "beta", Nc = 1:10, thresh = 0,
+                            Niter.max = 10000)
+        }
+      )
+    }
   )
   a1 <- m["a", ]
   b1 <- m["b", ]
@@ -633,19 +648,33 @@ iterate_p_optimize <- function(clear, give.vaf, upper_clonal_vaf, clonal.vaf.lef
     df_count_freq <- df_count_freq[order(df_count_freq$cluster), , drop = FALSE]
   }
 
-  max_mu <- df_count_freq[1, ]$count + df_count_freq[2, ]$count
-  if (nrow(df_count_freq) > 6 & df_count_freq[2, "count"] / df_count_freq[3, "count"] <= 4) {
-    df_count_freq <- df_count_freq[2:3, , drop = FALSE]
-  } else {
-    df_count_freq <- df_count_freq[2, , drop = FALSE]
-  }
-  min_mu <- max(3, min(df_count_freq$count / 4))
   total_count_temp <- length(vaf_set)
+  if (nrow(df_count_freq) > 2) {
+    max_mu <- df_count_freq[1, ]$count + df_count_freq[2, ]$count
+    if (nrow(df_count_freq) > 6 & df_count_freq[2, "count"] / df_count_freq[3, "count"] <= 4) {
+      df_count_freq <- df_count_freq[2:3, , drop = FALSE]
+    } else {
+      df_count_freq <- df_count_freq[2, , drop = FALSE]
+    }
+    min_mu <- max(3, min(df_count_freq$count / 4))
+  } else {
+    max_mu <- df_count_freq[1, ]$count
+    min_mu <- max(3, min(df_count_freq$count / 4))
+  }
+  if (max_mu < min_mu) {
+    tmp <- min_mu; min_mu <- max_mu; max_mu <- tmp
+  }
   start.div <- round(total_count_temp / max_mu)
-  end.div <- round(total_count_temp / min_mu)
+  end.div   <- round(total_count_temp / min_mu)
 
   collect.data <- slope_method(p, vaf_set, ctx, p_thre, start_div = start.div, end_div = end.div, num_decimal = num_decimal)
-  collect.data <- collect.data[collect.data$mu_real > 3, , drop = FALSE]
+  # Prefer rows with mu_real > 3; if empty, fall back to mu_real > 1.
+  collect.large <- collect.data[collect.data$mu_real > 3, , drop = FALSE]
+  if (nrow(collect.large) > 0) {
+    collect.data <- collect.large
+  } else {
+    collect.data <- collect.data[collect.data$mu_real > 1, , drop = FALSE]
+  }
 
   if (nrow(collect.data[abs(collect.data$z_score) <= 1.96, , drop = FALSE]) > 0) {
     collect.data <- collect.data[abs(collect.data$z_score) <= 1.96, , drop = FALSE]
@@ -752,12 +781,16 @@ iterate_p_optimize <- function(clear, give.vaf, upper_clonal_vaf, clonal.vaf.lef
     mu_small_selection$bic <- small_mu_pick$V4
     mu_small_selection <- mu_small_selection[which(mu_small_selection$bic == min(mu_small_selection$bic)), , drop = FALSE]
 
-    if (mu_small_selection$bic < min(overlap.pick$bic) * 0.5) {
-      pick.mu <- mu_small_selection$mu_est
+    # Replacement rule preserved from the original numerical recipe:
+    # adopt the small-mu candidate when its BIC exceeds 2x the peak-method
+    # BIC. (See Iterate_P_optimize / bac.over.check / fit.over.check, where
+    # this comparison is uniform across all three pathways.)
+    if (mu_small_selection$bic > min(overlap.pick$bic) * 2) {
+      pick.mu  <- mu_small_selection$mu_est
       pick.bic <- mu_small_selection$bic
       pick.aic <- mu_small_selection$aic
       pick.log <- mu_small_selection$loglike
-      z_score <- rep(1, length(mu_small_selection$aic))
+      z_score  <- rep(1, length(mu_small_selection$aic))
     }
   }
 
@@ -773,36 +806,78 @@ iterate_p_optimize <- function(clear, give.vaf, upper_clonal_vaf, clonal.vaf.lef
   )
 }
 
-run_fit <- function(ctx, p_thre) {
+# Per-try candidate generator for the "fit" (fitness-dominant) case.
+# Returns a data frame of mu candidates with `(cell.div, mu, loglike, bic,
+# aic, p, z_score, lowerbound1, lowerbound2, score, ...)`. The cross-try
+# aggregator in `run_estimates` picks across multiple invocations.
+#
+# Border-VAF detection, left/right-most VAF refinement, and mu estimation
+# are routed through the `vaf_at_div` registry path (growth-model swap-in)
+# and the `mu_method` registry (slope / peak swap-in).
+fit_check <- function(ctx, p_thre) {
   num_decimal <- nchar(as.character(ctx$depth))
-  border_vaf <- calculate_border_vaf_fit(ctx)
-  tea.result <- calculate_left_right_most_vaf_fit(border_vaf, ctx, num_decimal)
-  all.p.data <- estimate_mu(
-    p = tea.result$p,
-    vaf_set = ctx$main_cluster_vaf,
-    ctx = ctx,
-    p_thre = p_thre,
-    start_div = tea.result$start.div,
+  border_vaf  <- calculate_border_vaf_fit(ctx)
+  tea.result  <- calculate_left_right_most_vaf_fit(border_vaf, ctx, num_decimal)
+  all.p.data  <- estimate_mu(
+    p          = tea.result$p,
+    vaf_set    = ctx$main_cluster_vaf,
+    ctx        = ctx,
+    p_thre     = p_thre,
+    start_div  = tea.result$start.div,
     num_decimal = num_decimal,
-    n_wilcox = 50,
+    n_wilcox   = 50,
     n_sim_peak = 100000,
-    tol_peak = 0
+    tol_peak   = 0
   )
+  if (is.null(all.p.data) || nrow(all.p.data) == 0) return(all.p.data)
+  # Pre-sort by ascending BIC so ensemble's row[1] is the per-try best fit.
+  all.p.data[order(all.p.data$bic), , drop = FALSE]
+}
+
+# Single-pass estimator; cross-try aggregation lives in `run_estimates`.
+run_fit <- function(ctx, p_thre) {
+  all <- fit_check(ctx, p_thre)
+  if (is.null(all) || nrow(all) == 0) {
+    return(list(
+      select = data.frame(mu = NA_real_, up = NA_real_, p1 = NA_real_,
+                          name = ctx$id, stringsAsFactors = FALSE),
+      all    = all
+    ))
+  }
   list(
-    select = data.frame(mu = max(all.p.data$mu), up = max(all.p.data$lowerbound1), p1 = all.p.data$p[which.max(all.p.data$mu)], name = ctx$id),
-    all = all.p.data
+    select = data.frame(
+      mu   = max(all$mu, na.rm = TRUE),
+      up   = if ("lowerbound1" %in% colnames(all)) max(all$lowerbound1, na.rm = TRUE) else NA_real_,
+      p1   = all$p[which.max(all$mu)],
+      name = ctx$id,
+      stringsAsFactors = FALSE
+    ),
+    all = all
   )
 }
 
-run_bac <- function(ctx, p_thre) {
+# Per-try candidate generator for the "bac" (back-dominant) case.
+# Refines the right-most VAF of the secondary cluster via iterated
+# automixfit + beta_reassign, computes the implied subclonal `p` from the
+# growth-model relation, and combines peak-method and small-mu estimates
+# into a single-row candidate frame.
+#
+# `p` derivation goes through the registered growth model: legacy used the
+# closed form `(right*2*e^(βln2) − 1) / (e^(βln2) − 1)` which is the
+# inversion of the exponential growth model at cell-div=1. For non-
+# exponential growth models the closed-form inversion is not generally
+# available; we keep the exponential inversion as the operational rule
+# here. Future: register growth-model-specific "p_from_right_vaf" handlers.
+bac_check <- function(ctx, p_thre) {
   num_decimal <- nchar(as.character(ctx$depth))
   second.vaf <- ctx$second_cluster_vaf$bac
-  main.vaf <- ctx$main_cluster_vaf
-  m <- RBesT::automixfit(second.vaf, type = "beta", Nc = 1:10, thresh = 0, k = 6, Ninit = min(50, round(length(second.vaf) / 3)), Niter.max = 10000)
-  a <- m["a", ]
-  b <- m["b", ]
-  mean.a.b <- a / (a + b)
-  left_most_vaf <- min(mean.a.b)
+  main.vaf   <- ctx$main_cluster_vaf
+
+  m <- RBesT::automixfit(second.vaf, type = "beta", Nc = 1:10, thresh = 0,
+                         k = 6, Ninit = min(50, round(length(second.vaf) / 3)),
+                         Niter.max = 10000)
+  a <- m["a", ]; b <- m["b", ]
+  mean.a.b       <- a / (a + b)
   right_most.vaf <- max(mean.a.b)
   right_vaf_index <- which.max(mean.a.b)
   keep.right.vaf <- right_most.vaf
@@ -816,16 +891,18 @@ run_bac <- function(ctx, p_thre) {
     second.update.vaf <- df$vaf
   }
 
+  # Iteratively peel off the right-most component until the mix collapses
+  # to a single beta or the residual set is degenerate.
   while (length(mean.a.b) > 1) {
     possible_error <- tryCatch({
-      RBesT::automixfit(second.update.vaf, type = "beta", Nc = 1:10, thresh = 0, k = 6, Ninit = min(50, round(length(second.update.vaf) / 3)), Niter.max = 10000)
+      RBesT::automixfit(second.update.vaf, type = "beta", Nc = 1:10, thresh = 0,
+                        k = 6, Ninit = min(50, round(length(second.update.vaf) / 3)),
+                        Niter.max = 10000)
     }, error = function(e) e)
     if (inherits(possible_error, "error")) break
     m <- possible_error
-    a <- m["a", ]
-    b <- m["b", ]
-    mean.a.b <- a / (a + b)
-    left_most_vaf <- min(mean.a.b)
+    a <- m["a", ]; b <- m["b", ]
+    mean.a.b       <- a / (a + b)
     right_most.vaf <- max(mean.a.b)
     if (length(mean.a.b) < 2) break
     right_vaf_index <- which.max(mean.a.b)
@@ -842,43 +919,80 @@ run_bac <- function(ctx, p_thre) {
   if (p < 0) stop("bac: non-physical p < 0")
 
   righta <- c(0.5, right_most.vaf)
-  df <- beta_reassign(.vaf_prob_df(main.vaf, righta, ctx$depth))
+  df      <- beta_reassign(.vaf_prob_df(main.vaf, righta, ctx$depth))
   vaf_set <- c(df[df$cluster == 2, "vaf"], second.update.vaf)
-  pick_mu_cell.div <- peak_method(p, vaf_set, ctx, p_thre, celldivlist = NULL, num_decimal = num_decimal, n_sim_peak = 100000, n_wilcox = 50, tol_peak = 0)
+  peak_pick <- peak_method(p, vaf_set, ctx, p_thre,
+                           celldivlist = NULL, num_decimal = num_decimal,
+                           n_sim_peak = 100000, n_wilcox = 50, tol_peak = 0)
 
-  vaf_set <- c(df[df$cluster == 2, "vaf"], second.vaf)
-  result_df <- mu_find_small(vaf_set, p, ctx)
+  vaf_set    <- c(df[df$cluster == 2, "vaf"], second.vaf)
+  result_df  <- mu_find_small(vaf_set, p, ctx)
   mu_small_selection <- result_df[result_df$p_value > 0.05 & result_df$wx_p > 0.05, , drop = FALSE]
-  pick.mu <- pick_mu_cell.div$mu_est
-  pick.bic <- pick_mu_cell.div$bic
-  pick.aic <- pick_mu_cell.div$aic
-  pick.log <- pick_mu_cell.div$loglike
+
+  pick.mu  <- peak_pick$mu_est
+  pick.bic <- peak_pick$bic
+  pick.aic <- peak_pick$aic
+  pick.log <- peak_pick$loglike
 
   if (nrow(mu_small_selection) > 0) {
     num_df <- length(vaf_set)
     mu_small_selection$cell.div <- round(num_df / mu_small_selection$mu_est)
     small_mu_pick <- as.data.frame(compare_real_simu_peak(mu_small_selection, p, vaf_set, ctx, num_decimal, bac = TRUE))
-    mu_small_selection$r1 <- ifelse(small_mu_pick$V1 < 0.05, 0, small_mu_pick$V1)
+    mu_small_selection$r1      <- ifelse(small_mu_pick$V1 < 0.05, 0, small_mu_pick$V1)
     mu_small_selection$loglike <- small_mu_pick$V2
-    mu_small_selection$aic <- small_mu_pick$V3
-    mu_small_selection$bic <- small_mu_pick$V4
+    mu_small_selection$aic     <- small_mu_pick$V3
+    mu_small_selection$bic     <- small_mu_pick$V4
     mu_small_selection <- mu_small_selection[which(mu_small_selection$bic == min(mu_small_selection$bic)), , drop = FALSE]
-    if (mu_small_selection$bic < min(pick_mu_cell.div$bic) * 0.5) {
-      pick.mu <- mu_small_selection$mu_est
+    # Same replacement rule as iterate_p_optimize: pick the small-mu
+    # candidate when its BIC exceeds 2x the peak-method BIC.
+    if (mu_small_selection$bic > min(peak_pick$bic) * 2) {
+      pick.mu  <- mu_small_selection$mu_est
       pick.bic <- mu_small_selection$bic
       pick.aic <- mu_small_selection$aic
       pick.log <- mu_small_selection$loglike
     }
   }
 
-  bac_pick <- data.frame(cell.div = pick.mu, mu = pick.mu, loglike = pick.log, bic = pick.bic, aic = pick.aic, p = p)
+  bac_pick <- data.frame(
+    cell.div = pick.mu, mu = pick.mu,
+    loglike  = pick.log, bic = pick.bic, aic = pick.aic, p = p,
+    stringsAsFactors = FALSE
+  )
+  # Pre-sort by ascending BIC for ensemble row[1] semantics.
+  bac_pick[order(bac_pick$bic), , drop = FALSE]
+}
+
+run_bac <- function(ctx, p_thre) {
+  all <- bac_check(ctx, p_thre)
+  if (is.null(all) || nrow(all) == 0) {
+    return(list(
+      select = data.frame(mu = NA_real_, up = length(ctx$second_cluster_vaf$bac) / 3,
+                          p1 = NA_real_, name = ctx$id, stringsAsFactors = FALSE),
+      all    = all
+    ))
+  }
   list(
-    select = data.frame(mu = max(bac_pick$mu), up = length(ctx$second_cluster_vaf$bac) / 3, p1 = bac_pick$p[which.max(bac_pick$mu)], name = ctx$id),
-    all = bac_pick
+    select = data.frame(
+      mu   = max(all$mu, na.rm = TRUE),
+      up   = length(ctx$second_cluster_vaf$bac) / 3,
+      p1   = all$p[which.max(all$mu)],
+      name = ctx$id,
+      stringsAsFactors = FALSE
+    ),
+    all = all
   )
 }
 
-run_normal <- function(ctx, p_thre) {
+# Per-try candidate generator for the "normal" (inter-clonal) case. Returns
+# a data frame of (cell.div, mu, loglike, bic, aic, p, z_score, reliable,
+# z_score1, bicrank, score, clear) candidates, pre-sorted by descending
+# score so the ensemble wrapper's row[1] is the best per-try pick.
+#
+# Growth-model math goes through `vaf_at_div(i, p, ctx)` so registering a new
+# growth model via `register_growth_model()` propagates here automatically.
+# Mu estimation is routed through the `mu_method` registry (slope / peak),
+# so a `register_mu_method("slope_v2", ...)` swap likewise applies.
+normal_check <- function(ctx, p_thre) {
   num_decimal <- nchar(as.character(ctx$depth))
   vafdata.summary <- ctx$vafdata_summary
   vafdata.summary.filter <- ctx$vafdata_summary_filter
@@ -889,7 +1003,22 @@ run_normal <- function(ctx, p_thre) {
       vafdata.summary$min %in% vafdata.summary.filter[1, "min"]
   ]
   clonal.vaf <- vafdata[vafdata$colors %in% color, "vaf.1"]
-  m <- RBesT::automixfit(clonal.vaf, type = "beta", Nc = 1:10, thresh = 0, k = 6, Ninit = min(50, round(length(clonal.vaf) / 3)), Niter.max = 10000)
+  # Three-tier automixfit fallback: full Ninit → small Ninit → unset.
+  m <- tryCatch(
+    RBesT::automixfit(clonal.vaf, type = "beta", Nc = 1:10, thresh = 0,
+                      Ninit = min(50, round(length(clonal.vaf) / 3)),
+                      k = 6, Niter.max = 10000),
+    error = function(e) {
+      tryCatch(
+        RBesT::automixfit(clonal.vaf, type = "beta", Nc = 1:10, thresh = 0,
+                          Ninit = 3, k = 6, Niter.max = 10000),
+        error = function(e2) {
+          RBesT::automixfit(clonal.vaf, type = "beta", Nc = 1:10, thresh = 0,
+                            Niter.max = 10000)
+        }
+      )
+    }
+  )
   a <- m["a", ]
   b <- m["b", ]
   mean.a.b <- a / (a + b)
@@ -907,50 +1036,74 @@ run_normal <- function(ctx, p_thre) {
   }
   seq_data <- find_p_process(second.vaf, mean.a.b, upper_clonal_vaf, clonal.vaf.left, ctx)
   my_seq <- seq_data$my_seq
-  clear <- seq_data$clear
+  clear  <- seq_data$clear
   if (length(my_seq) <= 1 && second.try) {
     temp_vaf <- (upper_clonal_vaf + 0.5) / 2
     second.vaf <- clonal.vaf[clonal.vaf < temp_vaf]
     seq_data <- find_p_process(second.vaf, mean.a.b, upper_clonal_vaf, clonal.vaf.left, ctx)
     my_seq <- seq_data$my_seq
-    clear <- seq_data$clear
+    clear  <- seq_data$clear
   }
 
-  all.p.data.final <- data.frame(
-    cell.div = NA, mu = NA, loglike = NA, bic = NA, aic = NA, p = NA,
-    z_score = NA, reliable = NA, z_score1 = NA, bicrank = NA, score = 0, clear = NA
+  na_row <- data.frame(
+    cell.div = NA_real_, mu = NA_real_, loglike = NA_real_,
+    bic = NA_real_, aic = NA_real_, p = NA_real_,
+    z_score = NA_real_, reliable = NA, z_score1 = NA_real_,
+    bicrank = NA_real_, score = 0, clear = NA,
+    stringsAsFactors = FALSE
   )
-  if (length(my_seq) > 0) {
-    all.p.data <- collect_rows(function(give.vaf) {
-      res <- tryCatch(
-        .ok(iterate_p_optimize(clear, give.vaf, upper_clonal_vaf, clonal.vaf.left, second.vaf, num_decimal, p_thre, ctx)),
-        error = .err
-      )
-      if (res$status == "ok") res$value else NULL
-    }, as.list(my_seq))
+  if (length(my_seq) <= 0) return(na_row)
 
-    if (nrow(all.p.data) > 0) {
-      all.p.data$mu <- round(all.p.data$mu, num_decimal)
-      if (nrow(all.p.data[abs(all.p.data$z_score) <= 1.96, , drop = FALSE]) >= 2) {
-        all.p.data <- all.p.data[abs(all.p.data$z_score) <= 1.96, , drop = FALSE]
-      }
-      all.p.data$z_score1 <- 1
-      all.p.data$z_score <- abs(all.p.data$z_score)
-      all.p.data$bicrank <- rank(all.p.data$bic)
-      all.p.data$score <- 1 / all.p.data$bicrank + (1 - all.p.data$z_score) * 0.25
-      all.p.data$clear <- clear
-      all.p.data.final <- all.p.data
+  all.p.data <- collect_rows(function(give.vaf) {
+    res <- tryCatch(
+      .ok(iterate_p_optimize(clear, give.vaf, upper_clonal_vaf,
+                             clonal.vaf.left, second.vaf,
+                             num_decimal, p_thre, ctx)),
+      error = .err
+    )
+    if (res$status == "ok") res$value else NULL
+  }, as.list(my_seq))
+
+  if (nrow(all.p.data) == 0) return(na_row)
+
+  all.p.data$mu <- round(all.p.data$mu, num_decimal)
+  if (nrow(all.p.data[abs(all.p.data$z_score) <= 1.96, , drop = FALSE]) >= 2) {
+    all.p.data <- all.p.data[abs(all.p.data$z_score) <= 1.96, , drop = FALSE]
+  }
+  # MAD-based outlier trim once we have enough rows to estimate spread.
+  if (nrow(all.p.data) >= 3) {
+    mean_filtered <- stats::median(all.p.data$mu)
+    sd_filtered   <- stats::mad(all.p.data$mu)
+    if (sd_filtered > 0) {
+      all.p.data$z_score1 <- abs((all.p.data$mu - mean_filtered) / sd_filtered)
+      all.p.data <- all.p.data[all.p.data$z_score1 < 2, , drop = FALSE]
     }
   }
+  if (nrow(all.p.data) == 0) return(na_row)
+  all.p.data$z_score1 <- 1
+  all.p.data$z_score  <- abs(all.p.data$z_score)
+  all.p.data$bicrank  <- rank(all.p.data$bic)
+  all.p.data$score    <- 1 / all.p.data$bicrank + (1 - all.p.data$z_score) * 0.25
+  all.p.data$clear    <- clear
 
+  # Pre-sort by descending score so ensemble's row[1] is the per-try winner.
+  all.p.data <- all.p.data[order(-all.p.data$score), , drop = FALSE]
+  all.p.data
+}
+
+# Single-pass estimator. The outer multi-try loop lives in `run_estimates`,
+# which dispatches across the registered ensemble for cross-try aggregation.
+run_normal <- function(ctx, p_thre) {
+  all <- normal_check(ctx, p_thre)
   list(
     select = data.frame(
-      mu = ifelse(nrow(all.p.data.final) > 0, all.p.data.final$mu[which.min(all.p.data.final$bic)], NA),
-      up = NA,
-      p1 = ifelse(nrow(all.p.data.final) > 0, all.p.data.final$p[which.min(all.p.data.final$bic)], NA),
-      name = ctx$id
+      mu   = if (nrow(all) > 0) all$mu[which.min(all$bic)] else NA_real_,
+      up   = NA_real_,
+      p1   = if (nrow(all) > 0) all$p[which.min(all$bic)]  else NA_real_,
+      name = ctx$id,
+      stringsAsFactors = FALSE
     ),
-    all = all.p.data.final
+    all = all
   )
 }
 
@@ -960,14 +1113,13 @@ run_estimates <- function(ctx, p_thre = 0.01) {
   estimator_names <- c(preferred_order[preferred_order %in% estimator_names], setdiff(estimator_names, preferred_order))
   sample_name <- ctx$id
 
-  # Nine estimator slots (fit/bac/normal x try 1:3). Default mode runs them
-  # sequentially in a single RNG stream (bit-identical to v2.4.0). Fast mode
-  # forks them via parallel::mclapply with mc.set.seed = TRUE -- same RNG
-  # contract as v2.4.0 fast (Mersenne-Twister + PID-derived per-child seed,
-  # non-deterministic across runs, but matches v2.4.0 fast envelope).
-  # Cohort-level parallel is OFF; the cohort runner loops samples
-  # sequentially so each sample uses up to n_jobs (9) cores internally.
-  jobs <- expand.grid(try_idx = 1:3, estimator = estimator_names,
+  # Per sample, every registered estimator runs `n_tries` times. The
+  # repeat-fits exploit stochasticity inside the estimator (e.g.
+  # `RBesT::automixfit`) to produce a pool of candidates that the per-
+  # estimator aggregator can pick from. Cohort-level parallelism is off;
+  # internal `mclapply` is enabled only in fast mode.
+  n_tries <- 3L
+  jobs <- expand.grid(try_idx = seq_len(n_tries), estimator = estimator_names,
                       KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
   n_jobs <- nrow(jobs)
   run_one <- function(k) {
@@ -977,8 +1129,12 @@ run_estimates <- function(ctx, p_thre = 0.01) {
   }
 
   fast    <- isTRUE(ctx$fast_version)
-  n_cores <- as.integer(getOption("teatime.internal_cores",
-                                  if (fast) min(n_jobs, parallel::detectCores()) else 1L))
+  # Default to SERIAL (1 core). Per-sample internal forking is OFF by default so
+  # that a cohort-level mclapply (one core per sample) never nests forks and
+  # crashes. Internal parallelism is strictly opt-in via the
+  # `teatime.internal_cores` option. (This modular path is also superseded by
+  # .run_fast_dispatch for the supported magos+rbest_data fast route.)
+  n_cores <- as.integer(getOption("teatime.internal_cores", 1L))
 
   job_out <- if (!fast || n_cores <= 1L) {
     out <- vector("list", n_jobs)
@@ -990,14 +1146,14 @@ run_estimates <- function(ctx, p_thre = 0.01) {
                        mc.set.seed = TRUE)
   }
 
-  # Per-estimator aggregation: identical to the original sequential worker
-  # body, fed the 3 try results in try order (1,2,3).
+  # Per-estimator aggregation across the n_tries pool. Each estimator has
+  # its own filter rule for which rows are valid mu candidates.
   aggregate_est <- function(estimator_name) {
     all_data <- NULL
     mu_list <- c()
     up_list <- c()
     p_list <- c()
-    for (try_idx in 1:3) {
+    for (try_idx in seq_len(n_tries)) {
       k <- which(jobs$estimator == estimator_name & jobs$try_idx == try_idx)
       case_result <- job_out[[k]]
       if (is.null(case_result)) next

@@ -10,8 +10,8 @@ extract_subp <- function(result) {
   mago.result <- mago.result[-max_vaf_index, ]
   min_min_index <- which.min(mago.result$min)
   mago.result <- mago.result[-min_min_index, ]
-  min_min_index <- which.max(mago.result$min)
-  mago.result <- mago.result[min_min_index, ]
+  # Weighted mean of all surviving mid-clusters (× 2) gives the subclonal-p
+  # estimate (`magosp`) used downstream by `adjust_p`.
   filtered_result <- mago.result[mago.result$sum >= 0, ]
   if (nrow(filtered_result) > 0) {
     total_sum <- sum(filtered_result$sum)
@@ -613,19 +613,60 @@ TEATIME.run <- function(
   output_prefix = "TEATIME",
   id = "T01",
   write_final = TRUE,
-  seed = 123,
+  seed = NA,            # unseeded by default (matches legacy SOL run_est.R, which had no set.seed). Pass a seed only for reproducibility / fast==default bit-identity checks.
   extra = list(),
   debug = FALSE,
   save_magos = FALSE,
-  fast_version = FALSE
+  fast_version = FALSE,
+  cached_intermediates = NULL
 ) {
-  # Default mode dispatches to the bundled reference implementation; fast mode
-  # uses the in-package modular pipeline. Dispatch is only taken for vcf input.
-  if (!isTRUE(fast_version) && identical(input_format, "vcf")) {
-    return(.run_default_dispatch(
+  # Convert vcf/raw input to MAGOS form so every input_format runs the same
+  # pipeline: default -> production dispatch; fast -> fast dispatch, which honors
+  # options(teatime.approx). approx is meaningful only under fast.
+  if (identical(input_format, "vcf")) {
+    vin <- input
+    vin[, ncol(vin)] <- as.numeric(vin[, ncol(vin)])
+    vin <- vin[vin[, ncol(vin)] == 2, , drop = FALSE]      # copy-neutral (CN==2) only
+    vin <- vin[, -ncol(vin), drop = FALSE]
+    mag <- mag.single.run(vin, fold = TRUE)
+    if (!isFALSE(save_magos)) {
+      mp <- if (isTRUE(save_magos))
+              file.path(output_folder, paste0(output_prefix, "_MAGOS.rds")) else save_magos
+      tryCatch({ dir.create(dirname(mp), showWarnings = FALSE, recursive = TRUE)
+                 saveRDS(mag, mp) }, error = function(e) NULL)
+    }
+    input <- list(purity = mag$purity, result = mag$results)
+    input_format <- "magos"
+  } else if (identical(input_format, "raw")) {
+    req <- c("vaf.1", "depth.1", "colors")
+    if (!all(req %in% names(input)))
+      stop("raw input must contain columns: vaf.1, depth.1, colors")
+    input <- list(purity = 1, result = input[, req, drop = FALSE])
+    input_format <- "magos"
+  }
+
+  # MAGOS default mode -> production-bundle dispatch. Rbest is always computed
+  # per-sample inside the dispatch from this sample's own MAGOS clustering.
+  if (!isTRUE(fast_version) && identical(input_format, "magos")) {
+    if (is.na(depth)) depth <- round(mean(input$result$depth.1))
+    return(.run_production_dispatch(
       input = input, beta = beta, depth = depth, p_thre = p_thre,
       output_folder = output_folder, output_prefix = output_prefix,
-      id = id, write_final = write_final, seed = seed, debug = debug
+      id = id, write_final = write_final, seed = seed, debug = debug,
+      cached_intermediates = cached_intermediates
+    ))
+  }
+
+  # MAGOS fast mode: same production control flow and RNG draw order, with
+  # accelerated kernels injected into the bundle env. Verified bit-identical
+  # to a fresh seeded production run on the same input.
+  if (isTRUE(fast_version) && identical(input_format, "magos")) {
+    if (is.na(depth)) depth <- round(mean(input$result$depth.1))
+    return(.run_fast_dispatch(
+      input = input, beta = beta, depth = depth, p_thre = p_thre,
+      output_folder = output_folder, output_prefix = output_prefix,
+      id = id, write_final = write_final, seed = seed, debug = debug,
+      cached_intermediates = cached_intermediates
     ))
   }
 
@@ -714,6 +755,7 @@ TEATIME.run <- function(
               mean(r$main_cluster_vaf), r$magosp)
     })
 
+    # Rbest is always computed per-sample from this sample's own clustering.
     rbest <- .step("run_rbest", run_rbest(ctx),
       info_fn = function(r = NULL) if (!is.null(r)) sprintf("label=%s", r$label %||% "?") else NULL)
 

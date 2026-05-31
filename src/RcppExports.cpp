@@ -49,11 +49,52 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ks_stat_2s_cpp
+double ks_stat_2s_cpp(Rcpp::NumericVector x, Rcpp::NumericVector y);
+RcppExport SEXP _TEATIME_ks_stat_2s_cpp(SEXP xSEXP, SEXP ySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type x(xSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type y(ySEXP);
+    rcpp_result_gen = Rcpp::wrap(ks_stat_2s_cpp(x, y));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ks_d_batch_cpp
+Rcpp::NumericVector ks_d_batch_cpp(Rcpp::NumericVector x, Rcpp::NumericVector sims, int ntry);
+RcppExport SEXP _TEATIME_ks_d_batch_cpp(SEXP xSEXP, SEXP simsSEXP, SEXP ntrySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type x(xSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type sims(simsSEXP);
+    Rcpp::traits::input_parameter< int >::type ntry(ntrySEXP);
+    rcpp_result_gen = Rcpp::wrap(ks_d_batch_cpp(x, sims, ntry));
+    return rcpp_result_gen;
+END_RCPP
+}
+// wilcox_p_batch_cpp
+Rcpp::NumericVector wilcox_p_batch_cpp(Rcpp::NumericVector x, Rcpp::NumericVector sims, int ntry);
+RcppExport SEXP _TEATIME_wilcox_p_batch_cpp(SEXP xSEXP, SEXP simsSEXP, SEXP ntrySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type x(xSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type sims(simsSEXP);
+    Rcpp::traits::input_parameter< int >::type ntry(ntrySEXP);
+    rcpp_result_gen = Rcpp::wrap(wilcox_p_batch_cpp(x, sims, ntry));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_TEATIME_beta_reassign_core", (DL_FUNC) &_TEATIME_beta_reassign_core, 4},
     {"_TEATIME_dbeta_matrix_cpp", (DL_FUNC) &_TEATIME_dbeta_matrix_cpp, 3},
     {"_TEATIME_wilcox_test_p_asym", (DL_FUNC) &_TEATIME_wilcox_test_p_asym, 2},
+    {"_TEATIME_ks_stat_2s_cpp", (DL_FUNC) &_TEATIME_ks_stat_2s_cpp, 2},
+    {"_TEATIME_ks_d_batch_cpp", (DL_FUNC) &_TEATIME_ks_d_batch_cpp, 3},
+    {"_TEATIME_wilcox_p_batch_cpp", (DL_FUNC) &_TEATIME_wilcox_p_batch_cpp, 3},
     {NULL, NULL, 0}
 };
 

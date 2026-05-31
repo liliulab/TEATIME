@@ -1,6 +1,6 @@
-## TEATIME embedded MAGOS = server-compatible OLD algorithm + fast mag.single
-##  - All non-mag.single helpers verbatim from server's MAGOS install
-##  - mag.single replaced with vectorised split+vapply version
+# MAGOS subclonal clustering. mag.single performs the hierarchical VAF merge
+# (vectorised matrix-product per-step statistics, no N x N identity); the
+# cut.off / mag.exp.var / mag.multiple functions select the final cluster count.
 
 cut.off.multiple <-
 function (mag.var) 

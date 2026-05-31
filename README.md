@@ -18,16 +18,24 @@ devtools::install_github("liliulab/TEATIME")
 
 ## Quick Start
 
-TEATIME ships in two modes controlled by `fast_version`:
+TEATIME runs in three modes:
 
-- **Default mode (`fast_version = FALSE`)** — the reference pipeline, potentially better estimation;
-- **Fast mode (`fast_version = TRUE`)** —   ~3–5× faster per sample.
-
+- **Default** (`fast_version = FALSE`) — the reference pipeline.
+- **Fast** (`fast_version = TRUE`) —  ~6× faster per sample.
+- **Approximation** (`fast_version = TRUE` + `options(teatime.approx = TRUE)`) — a **deterministic**, faster mode.
 ```r
 library(TEATIME)
 # input has 3 columns: REF, ALT, CN (per-mutation copy number)
+
+# Fast :
 result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9,
                       fast_version = TRUE)
+
+# Approximation (fastest):
+options(teatime.approx = TRUE)
+result <- TEATIME.run(your_vcf_data, input_format = "vcf", beta = 0.9,
+                      fast_version = TRUE)
+options(teatime.approx = FALSE)
 print(result)
 ```
 
@@ -67,7 +75,7 @@ input <- list(purity = magos$purity, result = magos$results)
 result <- TEATIME.run(input, input_format = "magos", beta = 0.9, depth = depth)
 ```
 
-For more on MAGOS, see [github.com/liliulab/magos](https://github.com/liliulab/magos). An example of this procedure is provided in the [TEATIME example workflow](https://htmlpreview.github.io/?https://github.com/liliulab/TEATIME/blob/main/vignettes/workflow.html).
+For more on MAGOS, see [github.com/liliulab/magos](https://github.com/liliulab/magos). 
 
 ### Option 3 — Pre-clustered data (`input_format = "raw"`)
 
@@ -109,10 +117,10 @@ When written to disk (`write_final = TRUE`), the file includes a `##` header lin
 | `output_prefix` | `"TEATIME"` | Prefix for output file names |
 | `id` | `"T01"` | Sample identifier in result table |
 | `write_final` | `TRUE` | Write `.final.txt` result file |
-| `seed` | `123` | Random seed for reproducibility; set to `NA` to run estimators three times independently for stochastic robustness |
+| `seed` | `NA` | Random seed. Default `NA` = unseeded.|
 | `debug` | `FALSE` | Enable debug mode |
 | `save_magos` | `FALSE` | `vcf` mode only: when `TRUE`, save the intermediate MAGOS clustering to `<output_folder>/<output_prefix>_MAGOS.rds`|
-| `fast_version` | `FALSE` | When `TRUE`, vectorised ~3–5× per-sample speed-up. |
+| `fast_version` | `FALSE` | Combine with `options(teatime.approx = TRUE)` for the nalytic approximation (fastest). |
 
 ---
 

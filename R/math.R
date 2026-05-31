@@ -20,6 +20,22 @@
   invisible(NULL)
 }
 
+# Cap a candidate sweep (cell.div / mu candidate vector) to at most
+# getOption("teatime.max_candidates") evenly-spaced entries, preserving order
+# and endpoints. Unset (or Inf) -> returned unchanged (no cap), which keeps
+# the default/faithful path bit-identical. The fast dispatch sets the option
+# (default 2000); because the mu likelihood/peak score is smooth in mu,
+# subsampling the candidate grid shifts the picked value <1% while turning the
+# O(n_snv) sweep into O(max_candidates).
+.cap_candidates <- function(x) {
+  n <- getOption("teatime.max_candidates", Inf)
+  if (!is.finite(n) || length(x) <= n) {
+    return(x)
+  }
+  idx <- unique(round(seq.int(1L, length(x), length.out = as.integer(n))))
+  x[idx]
+}
+
 collect_rows <- function(fn, items) {
   n <- length(items)
   if (n == 0L) {
@@ -138,14 +154,95 @@ generate_bootstrap_samples <- function(original_data, n_samples, num_decimal) {
     return(NA_real_)
   }
   ## Bit-identical replacement for outer(x, y, "-")-based counting.
-  ## Sort y once, then for each x_i count y < x_i and y <= x_i via
-  ## findInterval. O((n+m) log m) instead of O(n*m).
+  ## Sort y once, then count y < x_i / y <= x_i via findInterval.
+  ## The per-x_i counts n_lt/n_gt are integers, and the final value depends only
+  ## on the INTEGER totals sum(n_lt) and sum(n_gt). When x has many repeats
+  ## (e.g. the ~75-valued round(rbinom(100k)/depth) in peak_test), we evaluate
+  ## findInterval on the unique x values and weight by their counts: the totals
+  ## sum_u cnt_u*(n_lt_u - n_gt_u) equal the per-element sums exactly (integer
+  ## arithmetic), so the result is bit-identical while collapsing 100k -> ~75.
   nx <- length(x); ny <- length(y)
   y_sorted <- sort(y)
-  n_lt <- findInterval(x, y_sorted, left.open = TRUE)  # # y_j  <  x_i
-  n_le <- findInterval(x, y_sorted)                    # # y_j <= x_i
-  n_gt <- ny - n_le                                    # # y_j  >  x_i
-  abs((sum(n_lt) - sum(n_gt)) / (nx * ny))
+  ux <- unique(x)
+  if (length(ux) < nx) {
+    cnt  <- tabulate(match(x, ux), nbins = length(ux))
+    n_lt <- findInterval(ux, y_sorted, left.open = TRUE)
+    n_le <- findInterval(ux, y_sorted)
+    n_gt <- ny - n_le
+    num  <- sum(as.numeric(cnt) * (n_lt - n_gt))      # exact for these integers
+    abs(num / (nx * ny))
+  } else {
+    n_lt <- findInterval(x, y_sorted, left.open = TRUE)  # # y_j  <  x_i
+    n_le <- findInterval(x, y_sorted)                    # # y_j <= x_i
+    n_gt <- ny - n_le                                    # # y_j  >  x_i
+    abs((sum(n_lt) - sum(n_gt)) / (nx * ny))
+  }
+}
+
+# Count-based two-sample Wilcoxon rank-sum asymptotic p-value (two.sided),
+# BIT-IDENTICAL to wilcox_test_p_asym / stats::wilcox.test on the asymptotic
+# branch. The statistic, tie-corrected variance, continuity correction and
+# 2*min(pnorm) two-sided p are algebraically the standard formulas; computing
+# the average ranks from per-value counts (instead of sorting the full x) gives
+# the identical numbers when `x` is heavily tied -- e.g. the 100k simulated VAFs
+# in peak_test collapse to ~75 unique values. Verified identical() over random
+# cases in /tmp/proto_counts.R. Used by the injected lean peak_test.
+.wilcox_p_counts <- function(x, y) {
+  nx <- length(x); ny <- length(y); n <- nx + ny
+  if (nx == 0L || ny == 0L) return(NA_real_)
+  uall <- sort(unique(c(x, y)))
+  cx <- tabulate(match(x, uall), nbins = length(uall))
+  cy <- tabulate(match(y, uall), nbins = length(uall))
+  m  <- cx + cy                              # total count at each distinct value
+  cum_before <- cumsum(m) - m                # # observations ranked before this group
+  avg_rank   <- cum_before + (m + 1) / 2     # average rank within each tied group
+  sum_rx     <- sum(cx * avg_rank)           # sum of ranks of x
+  statistic  <- sum_rx - nx * (nx + 1) / 2
+  tie_sum    <- sum(m^3 - m)
+  sigma_sq   <- (nx * ny / 12) * ((nx + ny + 1) - tie_sum / (n * (n - 1)))
+  if (!(sigma_sq > 0)) return(NA_real_)
+  z    <- statistic - nx * ny / 2
+  corr <- if (z > 0) 0.5 else if (z < 0) -0.5 else 0
+  z    <- (z - corr) / sqrt(sigma_sq)
+  p    <- 2 * min(stats::pnorm(z), stats::pnorm(z, lower.tail = FALSE))
+  min(p, 1)
+}
+
+# Precomputed-counts variants of the two count-based statistics: the heavily
+# tied side `x` is supplied as already-unique sorted values `xv` with integer
+# counts `xc` (sum(xc) == length(x)). Used by the lean peak_test, where the
+# simulated set's value-counts are obtained in ONE pass via tabulate() on the
+# raw integer rbinom draws -- avoiding unique()/match() over the 100k doubles
+# (twice, once per statistic). Results are bit-identical to .wilcox_p_counts /
+# .cliffs_delta_abs called on the expanded vector.
+.wilcox_p_counts_pre <- function(xv, xc, y) {
+  nx <- sum(xc); ny <- length(y); n <- nx + ny
+  if (nx == 0 || ny == 0L) return(NA_real_)
+  uall <- sort(unique(c(xv, y)))
+  cx <- numeric(length(uall)); cx[match(xv, uall)] <- xc
+  cy <- tabulate(match(y, uall), nbins = length(uall))
+  m  <- cx + cy
+  cum_before <- cumsum(m) - m
+  avg_rank   <- cum_before + (m + 1) / 2
+  sum_rx     <- sum(cx * avg_rank)
+  statistic  <- sum_rx - nx * (nx + 1) / 2
+  tie_sum    <- sum(m^3 - m)
+  sigma_sq   <- (nx * ny / 12) * ((nx + ny + 1) - tie_sum / (n * (n - 1)))
+  if (!(sigma_sq > 0)) return(NA_real_)
+  z    <- statistic - nx * ny / 2
+  corr <- if (z > 0) 0.5 else if (z < 0) -0.5 else 0
+  z    <- (z - corr) / sqrt(sigma_sq)
+  min(2 * min(stats::pnorm(z), stats::pnorm(z, lower.tail = FALSE)), 1)
+}
+
+.cliffs_delta_abs_pre <- function(xv, xc, y) {
+  nx <- sum(xc); ny <- length(y)
+  if (nx == 0 || ny == 0L) return(NA_real_)
+  ys   <- sort(y)
+  n_lt <- findInterval(xv, ys, left.open = TRUE)
+  n_le <- findInterval(xv, ys)
+  n_gt <- ny - n_le
+  abs(sum(as.numeric(xc) * (n_lt - n_gt)) / (nx * ny))
 }
 
 # Drop-in BIT-IDENTICAL replacement for sum(likelihoodExplore::likbeta(x, s1, s2,

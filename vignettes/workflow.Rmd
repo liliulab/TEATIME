@@ -69,37 +69,8 @@ data[, CN := 2]
 ```
 
 ## Analysis
-## Step 1 — Cluster mutations with MAGOS
 
-TEATIME bundles a vectorised version of MAGOS internally. Save the clustering result so the rest of the pipeline can be re-run without re-clustering.
-
-```{r magos-run}
-library(TEATIME)
-mag.single.run <- getFromNamespace("mag.single.run", "TEATIME")
-
-data[, t_ref_count := DP - ALT]
-data[, t_alt_count := ALT]
-input.data <- data[, .(REF = t_ref_count, ALT = t_alt_count)]
-
-# Run MAGOS and save for reproducibility
-run <- mag.single.run(input.data = input.data, fold = TRUE)
-saveRDS(run, "MAGOS.rds")
-```
-
-Load the pre-computed result that ships with the package and inspect clusters:
-
-```{r magos-plot, fig.cap="MAGOS clustering result"}
-input.file <- readRDS(system.file("extdata", "MAGOS.rds",
-                                  package = "TEATIME"))
-
-plot(input.file$results$vaf.1, input.file$results$depth.1,
-     col  = input.file$results$colors,
-     pch  = 19, cex = 0.6,
-     xlab = "VAF", ylab = "Depth",
-     main = "MAGOS Clustering Result")
-```
-
-## Step 2 — Run TEATIME
+## Step 1 — Run TEATIME
 
 `TEATIME.run()` accepts three input formats.
 
@@ -108,8 +79,7 @@ plot(input.file$results$vaf.1, input.file$results$depth.1,
 The simplest path: pass a `data.frame` with `REF`, `ALT`, and per-mutation
 `CN`. TEATIME runs the internal fast MAGOS, then estimates parameters.
 
-For this demo we enable `fast_version = TRUE`, which is ~3× speed-up. In fast mode the selection
-coefficient `s` is a stochastic approximation. To disable it and get a potentially more precise `s`, set `fast_version = FALSE` (default). The trade-off is not guaranteed;
+For this demo we enable `fast_version = TRUE`, with `options(teatime.approx = TRUE)`. To disable it, set `options(teatime.approx = FALSE)`. The trade-off is not guaranteed;
 
 ```{r teatime-vcf}
 samplename    <- "test"
@@ -117,7 +87,7 @@ output.folder <- file.path("./")
 dir.create(output.folder, showWarnings = FALSE)
 
 vcf.input <- data[, .(REF = DP - ALT, ALT = ALT, CN = CN)]
-
+options(teatime.approx = TRUE)
 result.vcf <- TEATIME.run(
   input         = vcf.input,
   input_format  = "vcf",
@@ -125,9 +95,7 @@ result.vcf <- TEATIME.run(
   output_folder = output.folder,
   output_prefix = "TEATIME",
   id            = samplename,
-  seed          = 123,
-  fast_version  = TRUE       # demo speed; set FALSE for the most accurate s
-  # save_magos  = TRUE       # uncomment to persist the intermediate MAGOS rds
+  fast_version  = TRUE      
 )
 print(result.vcf)
 ```
@@ -138,6 +106,15 @@ The TEATIME output file contains several key inferred parameters: μ mutation ra
 Skip the internal MAGOS step by passing the pre-computed clustering:
 
 ```{r teatime-magos, eval = FALSE}
+library(MAGOS)
+
+data[, t_ref_count := DP - ALT]
+data[, t_alt_count := ALT]
+input.data <- data[, .(REF = t_ref_count, ALT = t_alt_count)]
+
+# Run MAGOS and save for reproducibility
+input.file <- mag.single.run(input.data = input.data, fold = TRUE)
+
 depth <- round(mean(input.file$results$depth.1))
 
 result <- TEATIME.run(
@@ -148,7 +125,7 @@ result <- TEATIME.run(
   output_folder = output.folder,
   output_prefix = "TEATIME",
   id            = samplename,
-  seed          = 123
+  seed          = 999
 )
 ```
 
@@ -181,7 +158,7 @@ result.raw <- TEATIME.run(
   output_folder = output.folder,
   output_prefix = "TEATIME_raw",
   id            = samplename,
-  seed          = 123
+  seed          = 999
 )
 ```
 
